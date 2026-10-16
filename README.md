@@ -20,7 +20,9 @@ afirmação de que todas as etapas do PDF já estão concluídas.
 - Autenticação com dois perfis:
   - `ADMIN`;
   - `OPERATOR`, vinculado a um call center.
-- Sessão HTTP com cookie `HttpOnly` e `SameSite=Lax`.
+- JWT com Flask-JWT-Extended em cookie `HttpOnly` e `SameSite=Lax`.
+- Proteção CSRF para requisições que alteram estado.
+- Revogação de access tokens no SQLite durante o logout.
 - Senhas armazenadas com hash via Werkzeug.
 - Blueprint vertical de autenticação:
   - `POST /auth/login`;
@@ -104,14 +106,22 @@ começar a evoluir os modelos de leads.
 
 ### Autenticação
 
-A autenticação usa sessão assinada pelo Flask. O navegador recebe apenas o cookie
-de sessão; a senha nunca é retornada pela API e não é armazenada em texto puro.
-`SECRET_KEY` deve ser definido no ambiente em qualquer execução fora do cenário
-local:
+A autenticação usa um access token JWT gerenciado pelo Flask-JWT-Extended. O
+navegador recebe o token em cookie `HttpOnly`; o cookie CSRF complementar é lido
+pelo frontend apenas para ser enviado no cabeçalho das requisições mutáveis. A
+senha nunca é retornada pela API e não é armazenada em texto puro.
+`JWT_SECRET_KEY` deve ser definido no ambiente em qualquer execução fora do
+cenário local:
 
 ```bash
-SECRET_KEY=uma-chave-forte-e-secreta
+JWT_SECRET_KEY=uma-chave-forte-e-secreta
 ```
+
+O access token expira por padrão em 15 minutos (`JWT_ACCESS_TOKEN_MINUTES`). Não
+há refresh token nesta primeira versão. O logout é efetivo no servidor: o `jti`
+do token é salvo em `token_blocklist` e tokens revogados deixam de ser aceitos.
+
+Em produção, também defina `JWT_COOKIE_SECURE=1` para exigir HTTPS nos cookies.
 
 Autenticação e autorização são tratadas como responsabilidades diferentes: a
 autenticação atual identifica o usuário; a autorização por perfil e call center
@@ -141,7 +151,7 @@ Execução local do backend:
 ```bash
 cd backend
 python -m pip install -r requirements.txt
-SEED_DEMO=1 python app.py
+JWT_SECRET_KEY=local-demo-only-change-me-with-32-plus-bytes SEED_DEMO=1 python app.py
 ```
 
 Execução local do frontend:

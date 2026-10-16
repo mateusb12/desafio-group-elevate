@@ -3,6 +3,7 @@ services:
     build: ./backend
     environment:
       SEED_DEMO: "1"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-local-demo-only-change-me-with-32-plus-bytes}"
     command: flask --app app run --debug --host=0.0.0.0 --port=5000
     ports:
       - "5000:5000"

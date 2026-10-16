@@ -1,8 +1,12 @@
 import os
+from datetime import timedelta
 
 from flask import Flask, jsonify
+from flask_jwt_extended import JWTManager
+from sqlalchemy import select
 
 from auth import auth_blueprint
+from auth.models import TokenBlocklist
 from auth.service import seed_demo_users
 from database import db_session, initialize_database
 from dispatcher import models as dispatcher_models  # noqa: F401
@@ -10,9 +14,24 @@ from dispatcher import models as dispatcher_models  # noqa: F401
 
 def create_app() -> Flask:
     app = Flask(__name__)
-    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "development-only-change-me")
-    app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["JWT_SECRET_KEY"] = os.environ["JWT_SECRET_KEY"]
+    app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
+    app.config["JWT_COOKIE_SECURE"] = os.getenv("JWT_COOKIE_SECURE", "0") == "1"
+    app.config["JWT_COOKIE_SAMESITE"] = "Lax"
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(
+        minutes=int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "15"))
+    )
+
+    jwt = JWTManager(app)
+
+    @jwt.token_in_blocklist_loader
+    def is_token_revoked(_jwt_header: dict, jwt_payload: dict) -> bool:
+        with db_session() as db:
+            return db.scalar(
+                select(TokenBlocklist.jti).where(
+                    TokenBlocklist.jti == jwt_payload["jti"]
+                )
+            ) is not None
 
     app.register_blueprint(auth_blueprint)
 

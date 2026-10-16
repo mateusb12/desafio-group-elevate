@@ -9,16 +9,22 @@ compartilhada do SQLAlchemy.
 
 ```bash
 python -m pip install -r requirements.txt
-SEED_DEMO=1 python app.py
+JWT_SECRET_KEY=local-demo-only-change-me-with-32-plus-bytes SEED_DEMO=1 python app.py
 ```
 
 Ou inicie frontend e backend juntos com `docker compose up --build` na raiz do projeto.
 
 - `GET /` retorna `Hello, world!`
 - `GET /ping` retorna `{"status":"ok","message":"pong"}`
-- `POST /auth/login` autentica e cria a sessão
-- `GET /auth/me` retorna o usuário da sessão atual
-- `POST /auth/logout` encerra a sessão
+- `POST /auth/login` autentica e cria o cookie JWT
+- `GET /auth/me` retorna o usuário do token atual
+- `POST /auth/logout` revoga o token atual
+
+Variáveis relevantes:
+
+- `JWT_SECRET_KEY`: chave de assinatura, obrigatória fora do ambiente local;
+- `JWT_ACCESS_TOKEN_MINUTES`: expiração do access token (15 por padrão);
+- `JWT_COOKIE_SECURE=1`: exige HTTPS para os cookies, recomendado em produção.
 
 Contas demo:
 

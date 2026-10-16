@@ -1,16 +1,24 @@
-from flask import jsonify, request, session
+from flask import jsonify, request
+from flask_jwt_extended import (
+    create_access_token,
+    get_jwt,
+    get_jwt_identity,
+    jwt_required,
+    set_access_cookies,
+    unset_jwt_cookies,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from database import db_session
 
 from . import auth_blueprint
-from .models import User
+from .models import TokenBlocklist, User
 from .service import authenticate, user_payload
 
 
 def current_user(db: Session) -> User | None:
-    user_id = session.get("user_id")
+    user_id = get_jwt_identity()
     if not user_id:
         return None
     return db.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
@@ -30,12 +38,13 @@ def login():
         user = authenticate(db, email, password)
         if user is None:
             return jsonify(error="E-mail ou senha inválidos."), 401
-        session.clear()
-        session["user_id"] = user.id
-        return jsonify(user=user_payload(db, user))
+        response = jsonify(user=user_payload(db, user))
+        set_access_cookies(response, create_access_token(identity=user.id))
+        return response
 
 
 @auth_blueprint.get("/me")
+@jwt_required()
 def me():
     with db_session() as db:
         user = current_user(db)
@@ -45,6 +54,11 @@ def me():
 
 
 @auth_blueprint.post("/logout")
+@jwt_required()
 def logout():
-    session.clear()
-    return jsonify(status="ok")
+    with db_session() as db:
+        db.add(TokenBlocklist(jti=get_jwt()["jti"]))
+        db.commit()
+    response = jsonify(status="ok")
+    unset_jwt_cookies(response)
+    return response

@@ -40,3 +40,12 @@ class User(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+
+class TokenBlocklist(Base):
+    __tablename__ = "token_blocklist"
+
+    jti: Mapped[str] = mapped_column(String(36), primary_key=True)
+    revoked_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc), nullable=False
+    )

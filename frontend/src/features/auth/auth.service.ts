@@ -2,6 +2,18 @@ import type { AuthenticatedUser } from './auth.types'
 
 type AuthResponse = { user: AuthenticatedUser }
 
+function csrfToken(): string | undefined {
+  const cookie = document.cookie
+    .split('; ')
+    .find((value) => value.startsWith('csrf_access_token='))
+  return cookie ? decodeURIComponent(cookie.slice('csrf_access_token='.length)) : undefined
+}
+
+function csrfHeaders(): HeadersInit {
+  const token = csrfToken()
+  return token ? { 'X-CSRF-TOKEN': token } : {}
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const body = await response.json() as T & { error?: string }
   if (!response.ok) throw new Error(body.error ?? 'Não foi possível concluir a operação.')
@@ -19,7 +31,12 @@ export async function login(email: string, password: string): Promise<Authentica
 }
 
 export async function logout(): Promise<void> {
-  await fetch('/api/auth/logout', { method: 'POST' })
+  const response = await fetch('/api/auth/logout', {
+    method: 'POST',
+    headers: csrfHeaders(),
+  })
+  if (response.status === 401) return
+  await parseResponse<{ status: string }>(response)
 }
 
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
