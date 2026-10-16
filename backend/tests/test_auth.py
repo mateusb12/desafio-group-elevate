@@ -1,18 +1,36 @@
 import os
-import tempfile
 import time
 import unittest
 from datetime import timedelta
-from pathlib import Path
+from uuid import uuid4
+
+from psycopg import connect, sql
+from sqlalchemy.engine import make_url
 
 
 class AuthIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp = tempfile.TemporaryDirectory()
-        os.environ["DATABASE_URL"] = (
-            f"sqlite:///{Path(cls.temp.name) / 'auth-test.db'}"
-        )
+        cls.original_database_url = os.environ.get("DATABASE_URL", "")
+        if not cls.original_database_url.startswith("postgresql+psycopg://"):
+            raise RuntimeError("Os testes precisam de DATABASE_URL PostgreSQL.")
+
+        url = make_url(cls.original_database_url)
+        cls.test_database = "elevate_auth_test_" + uuid4().hex
+        cls.admin_url = url.set(
+            drivername="postgresql", database="postgres"
+        ).render_as_string(hide_password=False)
+
+        # Cria um banco separado: nunca altera tabelas da aplicação.
+        with connect(cls.admin_url, autocommit=True) as conn:
+            conn.execute(
+                sql.SQL("CREATE DATABASE {}").format(sql.Identifier(cls.test_database))
+            )
+        cls.addClassCleanup(cls.cleanup_database)
+
+        os.environ["DATABASE_URL"] = url.set(
+            database=cls.test_database
+        ).render_as_string(hide_password=False)
         os.environ["JWT_SECRET_KEY"] = "integration-test-only-key-with-32-plus-bytes"
         os.environ["SEED_DEMO"] = "1"
 
@@ -24,9 +42,14 @@ class AuthIntegrationTests(unittest.TestCase):
         cls.engine = engine
 
     @classmethod
-    def tearDownClass(cls):
-        cls.engine.dispose()
-        cls.temp.cleanup()
+    def cleanup_database(cls):
+        if hasattr(cls, "engine"):
+            cls.engine.dispose()
+        os.environ["DATABASE_URL"] = cls.original_database_url
+        with connect(cls.admin_url, autocommit=True) as conn:
+            conn.execute(
+                sql.SQL("DROP DATABASE {}").format(sql.Identifier(cls.test_database))
+            )
 
     def setUp(self):
         self.client = self.app.test_client()

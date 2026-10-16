@@ -10,11 +10,7 @@ class Base(DeclarativeBase):
     pass
 
 
-database_url = os.getenv("DATABASE_URL", f"sqlite:///{Path(__file__).with_name('app.db')}")
-engine = create_engine(
-    database_url,
-    connect_args={"check_same_thread": False} if database_url.startswith("sqlite") else {},
-)
+engine = create_engine(os.environ["DATABASE_URL"])
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

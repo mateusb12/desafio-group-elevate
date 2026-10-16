@@ -9,10 +9,10 @@ compartilhada do SQLAlchemy.
 
 ```bash
 python -m pip install -r requirements.txt
-JWT_SECRET_KEY=local-demo-only-change-me-with-32-plus-bytes SEED_DEMO=1 python app.py
+DATABASE_URL=postgresql+psycopg://elevate:elevate-local-only@localhost:5433/elevate JWT_SECRET_KEY=local-demo-only-change-me-with-32-plus-bytes SEED_DEMO=1 python app.py
 ```
 
-Ou inicie frontend e backend juntos com `docker compose up --build` na raiz do projeto.
+Para rodar diretamente, primeiro inicie o banco com `docker compose up -d db`. Ou suba todos os serviços com `docker compose up --build` na raiz do projeto.
 
 - `GET /` retorna `Hello, world!`
 - `GET /ping` retorna `{"status":"ok","message":"pong"}`

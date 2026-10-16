@@ -6,7 +6,7 @@ Este README registra o que já funciona e as decisões tomadas até aqui. O rest
 
 ## Como executar
 
-Com Docker instalado, na raiz do projeto:
+Com Docker instalado, na raiz do projeto (frontend, API e PostgreSQL):
 
 ```bash
 docker compose up --build
@@ -14,8 +14,9 @@ docker compose up --build
 
 - Interface: http://localhost:5173
 - API: http://localhost:5000
+- PostgreSQL local: `localhost:5433` (usuário e banco: `elevate`; senha de desenvolvimento: `elevate-local-only`)
 
-Para parar, use `docker compose down`.
+Para parar, use `docker compose down`. O volume do PostgreSQL é preservado; `down -v` apagaria os dados.
 
 ### Contas para testar
 
@@ -40,14 +41,14 @@ O fluxo completo, quando implementado, será este:
 4. O call center informa o andamento pelo webhook `POST /api/webhooks/callcenter`. O sistema guarda o histórico, inclusive quando chegam eventos repetidos ou fora de ordem.
 5. O administrador acompanha os números e os leads. Cada operador acessa apenas os leads do próprio call center.
 
-**O que já está funcionando:** login, identificação do usuário autenticado e logout usando a API e o banco SQLite. Há perfis de administrador e operador associados aos call centers. A interface de dashboard, lista de leads e configuração de pesos já existe, mas ainda utiliza dados de exemplo.
+**O que já está funcionando:** login, identificação do usuário autenticado e logout usando a API e o PostgreSQL. Há perfis de administrador e operador associados aos call centers. A interface de dashboard, lista de leads e configuração de pesos já existe, mas ainda utiliza dados de exemplo.
 
 **O que ainda é demonstração:** os leads exibidos não vêm do banco; a tela de distribuição salva percentuais no navegador (`localStorage`), não altera os pesos do backend; o dispatcher ainda não distribui leads. O isolamento por call center na API de leads também não está implementado.
 
 ## Escolhas técnicas
 
 - **Flask e SQLAlchemy:** uma API pequena com modelos relacionais, sem camadas extras antes de elas serem necessárias.
-- **SQLite:** facilita rodar o teste localmente. A concorrência nas gravações será avaliada ao implementar o dispatcher, em vez de assumir que o banco atual resolve todos os cenários.
+- **PostgreSQL:** permite coordenar atualizações simultâneas com transações e locks por linha, algo importante para o dispatcher. Continua simples de executar pelo Compose.
 - **React, TypeScript e Vite:** interface separada da API, com um proxy de desenvolvimento para as chamadas `/api`.
 - **Docker Compose:** frontend e backend sobem com um comando, sem exigir configuração manual de serviços adicionais.
 - **JWT com Flask-JWT-Extended:** escolhi uma biblioteca conhecida em vez de escrever assinatura e validação de tokens por conta própria. Não implementei refresh token nesta etapa.
@@ -56,7 +57,7 @@ O backend está organizado em módulos pequenos, como `auth/` e `dispatcher/`. N
 
 ## Segurança
 
-A autenticação usa JWT em cookie `HttpOnly`, proteção CSRF para operações que alteram dados e revogação de tokens no logout, registrada no SQLite. As senhas são armazenadas com hash. O access token expira em 15 minutos por padrão, sem renovação automática.
+A autenticação usa JWT em cookie `HttpOnly`, proteção CSRF para operações que alteram dados e revogação de tokens no logout, registrada no PostgreSQL. As senhas são armazenadas com hash. O access token expira em 15 minutos por padrão, sem renovação automática.
 
 O Compose usa uma chave JWT **apenas para desenvolvimento**. Fora do ambiente local, é necessário configurar uma `JWT_SECRET_KEY` forte; em HTTPS, ativar `JWT_COOKIE_SECURE=1`. Os usuários e a senha `demo123` não devem ser disponibilizados num ambiente real.
 
@@ -64,12 +65,12 @@ Ainda falta verificar as permissões nas futuras rotas de leads e dispatcher, au
 
 ## Testes
 
-Em vez de testar cada função isoladamente, comecei pelos comportamentos observáveis da API. Os cinco testes de integração atuais exercitam login, `/auth/me`, CSRF, logout, revogação de JWT, expiração, credenciais inválidas e usuários inativos, usando um SQLite temporário.
+Em vez de testar cada função isoladamente, comecei pelos comportamentos observáveis da API. Os cinco testes de integração atuais exercitam login, `/auth/me`, CSRF, logout, revogação de JWT, expiração, credenciais inválidas e usuários inativos, usando um banco PostgreSQL separado, criado e apagado automaticamente pelos testes.
 
 Para executar:
 
 ```bash
-docker compose run --build --rm --no-deps -T \
+docker compose run --build --rm -T \
   -e PYTHONDONTWRITEBYTECODE=1 \
   backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
@@ -82,11 +83,11 @@ O PDF propõe começar com 100 mil leads e pensar em 1 milhão e mais de 10 milh
 
 Minha abordagem inicial é manter o banco relacional, paginar consultas na API e definir índices a partir dos filtros realmente usados (como data, status e call center). Quando os modelos e consultas estiverem prontos, vou registrar quais índices foram escolhidos e por quê.
 
-Para 100 leads chegando quase ao mesmo tempo, a distribuição terá de ser persistida de modo consistente, com transações ou operações atômicas comprovadas por teste. Se o SQLite se tornar um limite de escrita ou de volume, a evolução mais provável é PostgreSQL. Redis, filas e particionamento só entram se houver necessidade demonstrada. **Isso é um plano, não uma capacidade já implementada.**
+Para 100 leads chegando quase ao mesmo tempo, a distribuição terá de ser persistida de modo consistente, com transações ou operações atômicas comprovadas por teste. O PostgreSQL dá as ferramentas para coordenar transações concorrentes, mas a distribuição ainda precisará ser implementada de forma atômica e validada sob carga. Redis, filas e particionamento só entram se houver necessidade demonstrada. **Isso é um plano, não uma capacidade já implementada.**
 
 ## Limitações e próximos passos
 
-A prioridade agora é completar o núcleo do teste: modelagem e migrations, recebimento de leads com idempotência, dispatcher com concorrência e webhook com histórico e proteção contra eventos indevidos. Depois conectarei as telas à API real, com filtros, paginação e autorização por perfil e call center.
+A prioridade agora é completar o núcleo do teste: migrations do PostgreSQL, modelagem, recebimento de leads com idempotência, dispatcher com concorrência e webhook com histórico e proteção contra eventos indevidos. Depois conectarei as telas à API real, com filtros, paginação e autorização por perfil e call center.
 
 Para uma segunda versão, avaliaria melhorias de operação e escala a partir dos resultados: renovação de sessão, observabilidade, processamento assíncrono e ajustes de banco, se fizerem sentido. Prefiro registrar uma limitação a apresentar uma funcionalidade incompleta como se estivesse pronta.
 
@@ -94,6 +95,7 @@ Para uma segunda versão, avaliaria melhorias de operação e escala a partir do
 
 Usei o ChatGPT para discutir alternativas, revisar código e montar mudanças pontuais. As escolhas e validações ficaram comigo. Alguns exemplos concretos:
 
+- Migrei do SQLite para PostgreSQL antes de criar o dispatcher, para trabalhar com transações e locks por linha na etapa de concorrência. O antigo arquivo SQLite não foi apagado.
 - Comecei com sessões do Flask. Depois comparei essa opção com JWT e optei por Flask-JWT-Extended, mantendo cookies e revogação no banco, sem Redis ou refresh token.
 - Pedi uma revisão para cortar redundâncias e evitar abstrações sem benefício. Também mantive a separação entre autenticação (quem é o usuário) e autorização (o que ele pode acessar).
 - Um teste de expiração criado com auxílio da IA falhou porque gerava um token já expirado durante o login. Corrigi o cenário para expirar **depois** de um login bem-sucedido.

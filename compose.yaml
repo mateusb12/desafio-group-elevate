@@ -1,9 +1,30 @@
 services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: elevate
+      POSTGRES_USER: elevate
+      POSTGRES_PASSWORD: elevate-local-only
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elevate -d elevate"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
   backend:
     build: ./backend
     environment:
       SEED_DEMO: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      DATABASE_URL: "postgresql+psycopg://elevate:elevate-local-only@db:5432/elevate"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:-local-demo-only-change-me-with-32-plus-bytes}"
+    depends_on:
+      db:
+        condition: service_healthy
     command: flask --app app run --debug --host=0.0.0.0 --port=5000
     ports:
       - "5000:5000"
@@ -32,3 +53,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  postgres_data:
