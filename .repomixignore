@@ -1,0 +1,7 @@
+# Add patterns to ignore here, one per line
+# Example:
+# *.log
+# tmp/
+
+# Snapshot gerado pelo Repomix; evite reingeri-lo no próximo pacote.
+codebase.md
