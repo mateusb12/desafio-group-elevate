@@ -50,7 +50,7 @@ Começar pelas telas e fluxos abaixo usando dados de exemplo. Depois, conectar c
   - [ ] Retornar status HTTP e mensagens adequadas para sucesso e dados inválidos.
   - [ ] Definir e documentar tratamento de requisições duplicadas/idempotência.
 - [ ] **Dispatcher de leads**
-  - [ ] Distribuir entre Call Center A (50%), B (30%) e C (20%), com a estratégia escolhida documentada.
+  - [ ] Distribuir entre Logicall (50%), Salesbound (30%) e AtendeMais (20%), com a estratégia escolhida documentada.
   - [ ] Persistir a distribuição de cada lead.
   - [ ] Garantir consistência com requisições concorrentes, sem condições de corrida.
 - [ ] **Webhook — `POST /api/webhooks/callcenter`**

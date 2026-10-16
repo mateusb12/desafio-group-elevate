@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, NavLink, Outlet, Route, Routes, useNavigate } from 'react-router'
-import { login, logout } from './features/auth/auth.service'
+import { getCurrentUser, login, logout } from './features/auth/auth.service'
 import type { AuthenticatedUser } from './features/auth/auth.types'
 import { LoginPage } from './features/auth/LoginPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
@@ -11,8 +11,16 @@ type Section = 'dashboard' | 'leads' | 'dispatcher'
 
 function App() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
+  const [sessionChecked, setSessionChecked] = useState(false)
   const [darkMode, setDarkMode] = useState(true)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    void getCurrentUser()
+      .catch(() => null)
+      .then(setUser)
+      .finally(() => setSessionChecked(true))
+  }, [])
 
   async function handleLogin(email: string, password: string) {
     const authenticatedUser = await login(email, password)
@@ -33,6 +41,8 @@ function App() {
   }
 
   const defaultPath = user?.role === 'ADMIN' ? '/dashboard' : '/leads'
+
+  if (!sessionChecked) return null
 
   return (
     <Routes>

@@ -3,9 +3,9 @@ export type CallCenterAllocation = { id: string; name: string; percentage: numbe
 const storageKey = 'group-elevate:dispatcher-allocations'
 
 const defaultAllocations: CallCenterAllocation[] = [
-  { id: 'call-center-a', name: 'Call Center A', percentage: 50 },
-  { id: 'call-center-b', name: 'Call Center B', percentage: 30 },
-  { id: 'call-center-c', name: 'Call Center C', percentage: 20 },
+  { id: 'call-center-a', name: 'Logicall', percentage: 50 },
+  { id: 'call-center-b', name: 'Salesbound', percentage: 30 },
+  { id: 'call-center-c', name: 'AtendeMais', percentage: 20 },
 ]
 
 export async function getAllocations(): Promise<CallCenterAllocation[]> {
@@ -17,7 +17,10 @@ export async function getAllocations(): Promise<CallCenterAllocation[]> {
   }
 
   try {
-    return JSON.parse(storedAllocations) as CallCenterAllocation[]
+    return (JSON.parse(storedAllocations) as CallCenterAllocation[]).map((item) => ({
+      ...item,
+      name: defaultAllocations.find((center) => center.id === item.id)?.name ?? item.name,
+    }))
   } catch {
     localStorage.setItem(storageKey, JSON.stringify(defaultAllocations))
     return defaultAllocations.map((item) => ({ ...item }))

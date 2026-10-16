@@ -4,8 +4,10 @@ import { checkBackendHealth } from './auth.service'
 type LoginPageProps = { onLogin: (email: string, password: string) => Promise<void> }
 
 const demoAccounts = [
-  { role: 'Administrador', email: 'admin@elevate.dev' },
-  { role: 'Operador', email: 'operador@elevate.dev' },
+  { role: 'Rafael · Admin Elevate', email: 'admin@elevate.dev' },
+  { role: 'Ana · Logicall', email: 'ana@logicall.example' },
+  { role: 'Bruno · Salesbound', email: 'bruno@salesbound.example' },
+  { role: 'Carla · AtendeMais', email: 'carla@atendemais.example' },
 ]
 
 type HealthStatus = 'checking' | 'online' | 'offline'
