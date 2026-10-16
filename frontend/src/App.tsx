@@ -6,8 +6,9 @@ import { LoginPage } from './features/auth/LoginPage'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { LeadsPage } from './features/leads/LeadsPage'
 import { DispatcherPage } from './features/dispatcher/DispatcherPage'
+import { LabPage } from './features/lab/LabPage'
 
-type Section = 'dashboard' | 'leads' | 'dispatcher'
+type Section = 'dashboard' | 'leads' | 'dispatcher' | 'lab'
 
 function App() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
@@ -52,6 +53,7 @@ function App() {
         <Route path="dashboard" element={user?.role === 'ADMIN' ? <DashboardPage onViewLeads={() => navigate('/leads')} /> : <Navigate to="/leads" replace />} />
         <Route path="leads" element={user ? <LeadsPage user={user} /> : <Navigate to="/login" replace />} />
         <Route path="dispatcher" element={user?.role === 'ADMIN' ? <DispatcherPage /> : <Navigate to="/leads" replace />} />
+        <Route path="lab" element={user?.role === 'ADMIN' ? <LabPage /> : <Navigate to="/leads" replace />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? defaultPath : '/login'} replace />} />
     </Routes>
@@ -93,6 +95,7 @@ function Sidebar({
         { id: 'dashboard', label: 'Visão geral', to: '/dashboard' },
         { id: 'leads', label: 'Leads', to: '/leads' },
         { id: 'dispatcher', label: 'Distribuição', to: '/dispatcher' },
+        { id: 'lab', label: 'LAB', to: '/lab' },
       ]
     : [{ id: 'leads', label: 'Meus leads', to: '/leads' }]
 
@@ -105,7 +108,7 @@ function Sidebar({
         <p className="mb-2 hidden px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 sm:block">Workspace</p>
         <nav className="flex flex-col gap-1" aria-label="Navegação principal">
           {navigation.map((item) => {
-            const icon = item.id === 'dashboard' ? '▦' : item.id === 'leads' ? '≡' : '⇄'
+            const icon = item.id === 'dashboard' ? '▦' : item.id === 'leads' ? '≡' : item.id === 'dispatcher' ? '⇄' : '✦'
             return (
               <NavLink key={item.id} to={item.to} aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
                 <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center text-base">{icon}</span>

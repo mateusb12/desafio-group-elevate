@@ -78,6 +78,12 @@ docker compose run --build --rm -T \
 
 Quando o núcleo de leads estiver pronto, também vou cobrir validação, distribuição, webhooks duplicados ou fora de ordem e uma bateria de requisições concorrentes. As regras críticas podem receber testes unitários pontuais; o importante é comprovar o comportamento, não aumentar a contagem de testes.
 
+### LAB de testes
+
+Antes de implementar a API de leads, criei um laboratório no frontend usando Faker. Escolho um cenário e gero de 1 a 100 cadastros com produto, funil, origem, campanha e afiliado aleatórios. Também consigo simular entradas inválidas, duplicatas e uma mistura de situações para observar como a API reage.
+
+Por enquanto, o LAB apenas gera e permite copiar os payloads: não envia requisições nem mede desempenho. Quando a API estiver pronta, cada objeto será enviado separadamente. Ele complementa os testes automatizados, mas não substitui os testes de integração e concorrência.
+
 ## Volume de dados e concorrência
 
 O PDF propõe começar com 100 mil leads e pensar em 1 milhão e mais de 10 milhões. Não precisamos construir essa infraestrutura agora, mas precisamos justificar como o sistema poderia evoluir.
