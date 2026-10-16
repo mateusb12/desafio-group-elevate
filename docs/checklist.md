@@ -16,24 +16,24 @@ Baseada no [Teste para Dev Fullstack V2.pdf](./Teste%20para%20Dev%20Fullstack%20
 
 Começar pelas telas e fluxos abaixo usando dados de exemplo. Depois, conectar cada ação à API e substituir os dados temporários.
 
-- [ ] **Acesso**
-  - [ ] O usuário deve conseguir entrar e sair da aplicação.
-  - [ ] Depois de entrar, o usuário deve ver as opções permitidas para seu perfil (`ADMIN` ou `OPERATOR`).
+- [x] **Acesso**
+  - [x] O usuário deve conseguir entrar e sair da aplicação (contas demonstrativas em memória).
+  - [x] Depois de entrar, o usuário deve ver as opções permitidas para seu perfil (`ADMIN` ou `OPERATOR`).
 - [ ] **Administrador (`ADMIN`): acompanhar leads**
-  - [ ] O administrador deve poder ver um resumo com total de leads, leads recebidos hoje, leads distribuídos, leads pendentes, vendas e taxa de conversão.
-  - [ ] O administrador deve poder listar todos os leads em uma tabela com nome, produto, funil, origem, call center, status e data de recebimento.
-  - [ ] O administrador deve poder filtrar a lista por período, produto, funil, origem, call center e status.
-  - [ ] O administrador deve poder navegar pelos resultados paginados sem carregar a lista inteira de uma vez.
-  - [ ] O administrador deve poder consultar para qual call center cada lead foi distribuído.
-  - [ ] O administrador deve poder consultar e alterar as configurações do dispatcher.
+  - [x] O administrador deve poder ver um resumo com total de leads, leads recebidos hoje, leads distribuídos, leads pendentes, vendas e taxa de conversão (valores demonstrativos).
+  - [x] O administrador deve poder listar todos os leads em uma tabela com nome, produto, funil, origem, call center, status e data de recebimento.
+  - [x] O administrador deve poder filtrar a lista por período, produto, funil, origem, call center e status.
+  - [x] O administrador deve poder navegar pelos resultados paginados (paginação local dos dados demonstrativos).
+  - [x] O administrador deve poder consultar para qual call center cada lead foi distribuído.
+  - [x] O administrador deve poder consultar e alterar as configurações do dispatcher (em memória).
 - [ ] **Operador (`OPERATOR`): atender leads**
-  - [ ] O operador deve poder ver somente os leads encaminhados ao call center ao qual pertence.
+  - [x] O operador deve poder ver somente os leads encaminhados ao call center ao qual pertence (filtro demonstrativo no frontend).
   - [ ] O operador deve poder abrir um lead e consultar as informações necessárias para o atendimento.
-  - [ ] O operador deve poder atualizar o status do lead durante o atendimento.
-  - [ ] O operador não deve ver telas ou ações administrativas nem acessar leads de outros call centers.
+  - [x] O operador deve poder atualizar o status do lead durante o atendimento (em memória).
+  - [x] O operador não deve ver telas ou ações administrativas nem acessar leads de outros call centers na interface demonstrativa.
 - [ ] **Comportamento das telas**
-  - [ ] O usuário deve receber feedback enquanto os dados carregam e quando uma ação dá certo ou falha.
-  - [ ] O usuário deve ver estados claros para lista vazia e erro de carregamento.
+  - [x] O usuário deve receber feedback enquanto os dados carregam e quando uma ação dá certo ou falha.
+  - [x] O usuário deve ver estados claros para lista vazia e erro de carregamento.
   - [ ] Validar os fluxos com dados de exemplo antes de conectar à API; depois remover/substituir os dados temporários.
 
 ## Etapa 2 — Núcleo funcional da API (prioridade técnica indicada no PDF)

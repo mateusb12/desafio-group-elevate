@@ -1,0 +1,21 @@
+export type CallCenterAllocation = { id: string; name: string; percentage: number }
+
+let allocations: CallCenterAllocation[] = [
+  { id: 'call-center-a', name: 'Call Center A', percentage: 50 },
+  { id: 'call-center-b', name: 'Call Center B', percentage: 30 },
+  { id: 'call-center-c', name: 'Call Center C', percentage: 20 },
+]
+
+export async function getAllocations(): Promise<CallCenterAllocation[]> {
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  return allocations.map((item) => ({ ...item }))
+}
+
+export async function saveAllocations(next: CallCenterAllocation[]): Promise<CallCenterAllocation[]> {
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  if (next.some((item) => item.percentage < 0) || next.reduce((total, item) => total + item.percentage, 0) !== 100) {
+    throw new Error('A soma das porcentagens precisa ser igual a 100%.')
+  }
+  allocations = next.map((item) => ({ ...item }))
+  return allocations.map((item) => ({ ...item }))
+}

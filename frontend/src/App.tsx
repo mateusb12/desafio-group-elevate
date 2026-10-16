@@ -1,39 +1,29 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { login, logout } from './features/auth/auth.service'
+import type { AuthenticatedUser } from './features/auth/auth.types'
+import { LoginPage } from './features/auth/LoginPage'
+import { DashboardPage } from './features/dashboard/DashboardPage'
+import { LeadsPage } from './features/leads/LeadsPage'
+import { DispatcherPage } from './features/dispatcher/DispatcherPage'
 
-type BackendStatus = 'checking' | 'online' | 'offline'
+type Section = 'dashboard' | 'leads' | 'dispatcher'
 
 function App() {
+  const [user, setUser] = useState<AuthenticatedUser | null>(null)
+  const [section, setSection] = useState<Section>('dashboard')
   const [darkMode, setDarkMode] = useState(true)
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
-  const [backendMessage, setBackendMessage] = useState('Verificando conexão...')
 
-  useEffect(() => {
-    let active = true
+  async function handleLogin(email: string, password: string) {
+    const session = await login(email, password)
+    setUser(session)
+    setSection(session.role === 'ADMIN' ? 'dashboard' : 'leads')
+  }
 
-    async function checkBackend() {
-      try {
-        const response = await fetch('/api/ping')
-        if (!response.ok) throw new Error('Backend indisponível')
-        const payload: { status: string; message: string } = await response.json()
-        if (active) {
-          setBackendStatus(payload.status === 'ok' ? 'online' : 'offline')
-          setBackendMessage(payload.message)
-        }
-      } catch {
-        if (active) {
-          setBackendStatus('offline')
-          setBackendMessage('Não foi possível conectar ao backend')
-        }
-      }
-    }
-
-    void checkBackend()
-    const interval = window.setInterval(checkBackend, 5000)
-    return () => {
-      active = false
-      window.clearInterval(interval)
-    }
-  }, [])
+  async function handleLogout() {
+    await logout()
+    setUser(null)
+    setSection('dashboard')
+  }
 
   function toggleTheme() {
     const nextDarkMode = !darkMode
@@ -41,76 +31,46 @@ function App() {
     document.documentElement.classList.toggle('dark', nextDarkMode)
   }
 
+  if (!user) return <LoginPage onLogin={handleLogin} />
+
+  const navigation: { id: Section; label: string }[] = user.role === 'ADMIN'
+    ? [
+        { id: 'dashboard', label: 'Visão geral' },
+        { id: 'leads', label: 'Leads' },
+        { id: 'dispatcher', label: 'Distribuição' },
+      ]
+    : [{ id: 'leads', label: 'Meus leads' }]
+
   return (
-    <main className="min-h-screen bg-slate-50 px-5 py-6 text-slate-900 transition-colors dark:bg-[#090d16] dark:text-slate-100 sm:px-8 sm:py-10">
-      <div className="mx-auto max-w-6xl">
-        <header className="flex items-center justify-between border-b border-slate-200 pb-5 dark:border-white/10">
-          <a href="/" className="flex items-center gap-3 font-semibold tracking-tight">
-            <span className="grid size-9 place-items-center rounded-xl bg-indigo-500 text-white shadow-lg shadow-indigo-500/20">G</span>
-            <span>Group Elevate <span className="font-normal text-slate-500 dark:text-slate-400">/ starter</span></span>
+    <main className="min-h-screen bg-slate-50 text-slate-900 transition-colors dark:bg-[#090d16] dark:text-slate-100">
+      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-white/10 dark:bg-[#090d16]/90">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-8">
+          <a href="/" className="flex shrink-0 items-center gap-3 font-semibold tracking-tight">
+            <span className="grid size-9 place-items-center rounded-xl bg-indigo-500 text-white">G</span>
+            <span className="hidden sm:inline">Group Elevate <span className="font-normal text-slate-500 dark:text-slate-400">/ dispatcher</span></span>
           </a>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-            aria-label={`Ativar modo ${darkMode ? 'claro' : 'escuro'}`}
-          >
-            {darkMode ? '☼  Modo claro' : '☾  Modo escuro'}
-          </button>
-        </header>
-
-        <section className="grid gap-12 py-16 sm:py-24 md:grid-cols-[1.2fr_0.8fr] md:items-center">
-          <div>
-            <div className={`mb-6 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${backendStatus === 'online' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300' : backendStatus === 'offline' ? 'border-rose-400/20 bg-rose-400/10 text-rose-700 dark:text-rose-300' : 'border-amber-400/20 bg-amber-400/10 text-amber-700 dark:text-amber-300'}`}>
-              <span className={`size-1.5 rounded-full ${backendStatus === 'online' ? 'bg-emerald-500' : backendStatus === 'offline' ? 'bg-rose-500' : 'bg-amber-500'}`} />
-              {backendStatus === 'checking' ? 'Verificando backend' : backendStatus === 'online' ? 'Backend conectado' : 'Backend indisponível'}
-            </div>
-            <h1 className="max-w-2xl text-4xl font-semibold leading-tight tracking-tight sm:text-6xl">
-              Uma base simples para o seu próximo projeto.
-            </h1>
-            <p className="mt-6 max-w-xl text-base leading-7 text-slate-600 dark:text-slate-400 sm:text-lg">
-              Frontend configurado com React, TypeScript, Vite e Tailwind CSS. Edite esta tela e comece a construir.
-            </p>
-            <a href="#stack" className="mt-8 inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-400">
-              Explorar a stack <span aria-hidden="true">→</span>
-            </a>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/40 dark:border-white/10 dark:bg-white/[0.03] dark:shadow-black/20 sm:p-8">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-5 dark:border-white/10">
-              <div>
-                <p className="text-sm font-medium">Healthcheck do backend</p>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">GET /ping · atualiza a cada 5s</p>
-              </div>
-              <span className={`rounded-md px-2.5 py-1 text-xs font-medium ${backendStatus === 'online' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : backendStatus === 'offline' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}>
-                {backendStatus === 'checking' ? 'Verificando' : backendStatus === 'online' ? 'Online' : 'Offline'}
-              </span>
-            </div>
-            <div className="space-y-4 pt-5">
-              {[
-                ['Frontend', 'React + TypeScript'],
-                ['Bundler', 'Vite'],
-                ['Estilos', 'Tailwind CSS v4'],
-                ['Resposta da API', backendMessage],
-              ].map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-4 text-sm">
-                  <span className="text-slate-500 dark:text-slate-400">{label}</span>
-                  <span className="text-right font-medium">{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="stack" className="border-t border-slate-200 pt-8 dark:border-white/10">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Ferramentas do projeto</p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {['React 19', 'TypeScript', 'Vite', 'Tailwind CSS v4'].map((item) => (
-              <span key={item} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300">{item}</span>
+          <nav className="flex items-center gap-1" aria-label="Navegação principal">
+            {navigation.map((item) => (
+              <button key={item.id} type="button" onClick={() => setSection(item.id)} className={`rounded-lg px-3 py-2 text-sm transition ${section === item.id ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
+                {item.label}
+              </button>
             ))}
+          </nav>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="hidden text-right sm:block">
+              <p className="text-sm font-medium">{user.name}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{user.role === 'ADMIN' ? 'Administrador' : user.callCenterName}</p>
+            </div>
+            <button type="button" onClick={toggleTheme} className="rounded-lg border border-slate-200 px-2.5 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5" aria-label={`Ativar modo ${darkMode ? 'claro' : 'escuro'}`}>
+              {darkMode ? '☼' : '☾'}
+            </button>
+            <button type="button" onClick={() => void handleLogout()} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5">Sair</button>
           </div>
-        </section>
-      </div>
+        </div>
+      </header>
+      {section === 'dashboard' && user.role === 'ADMIN' && <DashboardPage onViewLeads={() => setSection('leads')} />}
+      {section === 'leads' && <LeadsPage user={user} />}
+      {section === 'dispatcher' && user.role === 'ADMIN' && <DispatcherPage />}
     </main>
   )
 }
