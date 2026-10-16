@@ -1,189 +1,102 @@
 # Elevate Lead Dispatcher
 
-Aplicação full stack do desafio técnico do Grupo Elevate. O sistema recebe leads,
-associa sua origem, distribui para call centers e acompanha o ciclo de vida do
-lead.
+Projeto do teste técnico do Grupo Elevate. A ideia é simples: quando alguém preenche um formulário de vendas, o sistema recebe o contato (lead), identifica de onde ele veio, escolhe um call center para atendê-lo e acompanha o resultado.
 
-Este README acompanha a evolução do desafio: registra o que já foi implementado,
-as decisões tomadas e os requisitos ainda pendentes. Ele não representa uma
-afirmação de que todas as etapas do PDF já estão concluídas.
+Este README registra o que já funciona e as decisões tomadas até aqui. O restante do escopo está no [checklist do desafio](docs/checklist.md).
 
-## Estado atual
+## Como executar
 
-### Implementado
-
-- Frontend React + TypeScript + Vite.
-- Backend Flask.
-- SQLite com SQLAlchemy ORM.
-- Entidades `User` e `CallCenter`, com perfis, vínculo de operador e pesos iniciais de distribuição.
-- Organização inicial por fatias verticais no backend.
-- Autenticação com dois perfis:
-  - `ADMIN`;
-  - `OPERATOR`, vinculado a um call center.
-- JWT com Flask-JWT-Extended em cookie `HttpOnly` e `SameSite=Lax`.
-- Proteção CSRF para requisições que alteram estado.
-- Revogação de access tokens no SQLite durante o logout.
-- Senhas armazenadas com hash via Werkzeug.
-- Blueprint vertical de autenticação:
-  - `POST /auth/login`;
-  - `GET /auth/me`;
-  - `POST /auth/logout`.
-- Seed das contas de demonstração:
-  - `admin@elevate.dev` / `demo123`;
-  - `ana@logicall.example` / `demo123`
-  - `bruno@salesbound.example` / `demo123`
-  - `carla@atendemais.example` / `demo123`.
-- Healthcheck em `GET /ping`.
-
-### Próximas etapas do desafio
-
-- [ ] Modelar `Lead`, `Product`, `Funnel`, `Affiliate`, `Distribution` e histórico de status.
-- [ ] Adicionar migrations para versionar o schema.
-- [ ] Implementar `POST /api/leads` com validação, identificador e idempotência.
-- [ ] Implementar distribuição ponderada para os call centers Logicall/Salesbound/AtendeMais (`50%/30%/20%`).
-- [ ] Garantir consistência da distribuição sob concorrência.
-- [ ] Implementar `POST /api/webhooks/callcenter`.
-- [ ] Tratar webhooks duplicados e eventos fora de ordem.
-- [ ] Proteger o webhook com assinatura, API key ou estratégia equivalente.
-- [ ] Implementar autorização backend por perfil e escopo de call center.
-- [ ] Implementar métricas e dashboard administrativo.
-- [ ] Implementar filtros e paginação de leads.
-- [ ] Criar testes unitários, de integração e de concorrência.
-- [ ] Documentar índices e estratégia para crescimento do volume de leads.
-
-## Arquitetura
-
-O projeto segue uma abordagem vertical: cada domínio deve concentrar seu modelo,
-serviços, rotas e testes próximos uns dos outros. A infraestrutura compartilhada
-fica separada apenas quando não pertence a um domínio específico.
-
-```text
-backend/
-├── app.py                  # composição da aplicação e healthcheck
-├── database.py             # engine, Base e sessões SQLAlchemy
-├── auth/
-    ├── __init__.py         # auth_blueprint
-    ├── models.py           # entidades User e CallCenter
-    ├── routes.py           # endpoints de autenticação
-    └── service.py          # autenticação, seed e payload público
-└── dispatcher/
-    ├── models.py           # entidade CallCenter
-    └── __init__.py         # domínio operacional
-```
-
-O próximo domínio deve seguir o mesmo formato, por exemplo:
-
-```text
-backend/leads/
-├── models.py
-├── routes.py
-├── service.py
-└── tests/
-```
-
-`User` possui `role`, `is_active`, timestamps e uma chave estrangeira opcional
-para `CallCenter`. A regra de domínio é garantida também no banco: `ADMIN` não
-possui call center; `OPERATOR` precisa possuir um. A entidade `CallCenter` pertence
-ao domínio `dispatcher`, porque participa da distribuição e da configuração
-operacional. Os call centers iniciais Logicall/Salesbound/AtendeMais possuem pesos `50/30/20` para a futura
-distribuição.
-
-Não foram adicionados fila, worker, cache ou outro serviço neste momento. O PDF
-permite esses componentes, mas não os exige; a primeira versão prioriza o caminho
-mais simples com Flask e SQLite. Uma decisão diferente será registrada aqui quando
-uma necessidade real do domínio justificar a complexidade.
-
-## Decisões técnicas atuais
-
-### Banco e ORM
-
-SQLite foi escolhido para a primeira versão por ser suficiente para o ambiente do
-desafio e simples de executar localmente. O acesso é feito por SQLAlchemy ORM, com
-consultas parametrizadas e sem SQL construído a partir de entrada do usuário.
-
-O schema ainda não possui migrations. Essa é uma pendência explícita antes de
-começar a evoluir os modelos de leads.
-
-### Autenticação
-
-A autenticação usa um access token JWT gerenciado pelo Flask-JWT-Extended. O
-navegador recebe o token em cookie `HttpOnly`; o cookie CSRF complementar é lido
-pelo frontend apenas para ser enviado no cabeçalho das requisições mutáveis. A
-senha nunca é retornada pela API e não é armazenada em texto puro.
-`JWT_SECRET_KEY` deve ser definido no ambiente em qualquer execução fora do
-cenário local:
-
-```bash
-JWT_SECRET_KEY=uma-chave-forte-e-secreta
-```
-
-O access token expira por padrão em 15 minutos (`JWT_ACCESS_TOKEN_MINUTES`). Não
-há refresh token nesta primeira versão. O logout é efetivo no servidor: o `jti`
-do token é salvo em `token_blocklist` e tokens revogados deixam de ser aceitos.
-
-Em produção, também defina `JWT_COOKIE_SECURE=1` para exigir HTTPS nos cookies.
-
-Autenticação e autorização são tratadas como responsabilidades diferentes: a
-autenticação atual identifica o usuário; a autorização por perfil e call center
-será aplicada nas rotas de leads, dashboard e dispatcher.
-
-### Escalabilidade e concorrência
-
-O PDF pede reflexão sobre volumes de até milhões de leads e concorrência na
-distribuição. A implementação dessa parte ainda não começou. Antes de escolher
-fila, Redis ou worker, será avaliado se transações e operações atômicas no banco
-resolvem o primeiro cenário sem adicionar infraestrutura desnecessária.
-
-## Execução
-
-Com Docker Compose:
+Com Docker instalado, na raiz do projeto:
 
 ```bash
 docker compose up --build
 ```
 
-- Frontend: http://localhost:5173
-- Backend: http://localhost:5000
-- Healthcheck: http://localhost:5000/ping
+- Interface: http://localhost:5173
+- API: http://localhost:5000
 
-Execução local do backend:
+Para parar, use `docker compose down`.
+
+### Contas para testar
+
+O Docker Compose inicializa estes usuários, todos com a senha `demo123`:
+
+| Nome | E-mail | Acesso |
+| --- | --- | --- |
+| Rafael | `admin@elevate.dev` | Administrador |
+| Ana | `ana@logicall.example` | Operadora da Logicall |
+| Bruno | `bruno@salesbound.example` | Operador da Salesbound |
+| Carla | `carla@atendemais.example` | Operadora da AtendeMais |
+
+São contas e operações **de demonstração**, sem integração com empresas reais.
+
+## Como o sistema deve funcionar
+
+O fluxo completo, quando implementado, será este:
+
+1. Uma página de vendas envia o cadastro para `POST /api/leads`.
+2. A API valida os dados, registra produto, funil e origem e evita cadastros duplicados indevidos.
+3. O dispatcher escolhe um call center e salva a distribuição. A configuração inicial é Logicall 50%, Salesbound 30% e AtendeMais 20%.
+4. O call center informa o andamento pelo webhook `POST /api/webhooks/callcenter`. O sistema guarda o histórico, inclusive quando chegam eventos repetidos ou fora de ordem.
+5. O administrador acompanha os números e os leads. Cada operador acessa apenas os leads do próprio call center.
+
+**O que já está funcionando:** login, identificação do usuário autenticado e logout usando a API e o banco SQLite. Há perfis de administrador e operador associados aos call centers. A interface de dashboard, lista de leads e configuração de pesos já existe, mas ainda utiliza dados de exemplo.
+
+**O que ainda é demonstração:** os leads exibidos não vêm do banco; a tela de distribuição salva percentuais no navegador (`localStorage`), não altera os pesos do backend; o dispatcher ainda não distribui leads. O isolamento por call center na API de leads também não está implementado.
+
+## Escolhas técnicas
+
+- **Flask e SQLAlchemy:** uma API pequena com modelos relacionais, sem camadas extras antes de elas serem necessárias.
+- **SQLite:** facilita rodar o teste localmente. A concorrência nas gravações será avaliada ao implementar o dispatcher, em vez de assumir que o banco atual resolve todos os cenários.
+- **React, TypeScript e Vite:** interface separada da API, com um proxy de desenvolvimento para as chamadas `/api`.
+- **Docker Compose:** frontend e backend sobem com um comando, sem exigir configuração manual de serviços adicionais.
+- **JWT com Flask-JWT-Extended:** escolhi uma biblioteca conhecida em vez de escrever assinatura e validação de tokens por conta própria. Não implementei refresh token nesta etapa.
+
+O backend está organizado em módulos pequenos, como `auth/` e `dispatcher/`. Não adicionei Redis, filas ou workers só por precaução: primeiro quero medir a necessidade ao resolver a distribuição concorrente.
+
+## Segurança
+
+A autenticação usa JWT em cookie `HttpOnly`, proteção CSRF para operações que alteram dados e revogação de tokens no logout, registrada no SQLite. As senhas são armazenadas com hash. O access token expira em 15 minutos por padrão, sem renovação automática.
+
+O Compose usa uma chave JWT **apenas para desenvolvimento**. Fora do ambiente local, é necessário configurar uma `JWT_SECRET_KEY` forte; em HTTPS, ativar `JWT_COOKIE_SECURE=1`. Os usuários e a senha `demo123` não devem ser disponibilizados num ambiente real.
+
+Ainda falta verificar as permissões nas futuras rotas de leads e dispatcher, autenticar os webhooks e revisar riscos como tentativas repetidas de login e exposição de dados. Esconder uma tela no React não substitui autorização no backend.
+
+## Testes
+
+Em vez de testar cada função isoladamente, comecei pelos comportamentos observáveis da API. Os cinco testes de integração atuais exercitam login, `/auth/me`, CSRF, logout, revogação de JWT, expiração, credenciais inválidas e usuários inativos, usando um SQLite temporário.
+
+Para executar:
 
 ```bash
-cd backend
-python -m pip install -r requirements.txt
-JWT_SECRET_KEY=local-demo-only-change-me-with-32-plus-bytes SEED_DEMO=1 python app.py
+docker compose run --build --rm --no-deps -T \
+  -e PYTHONDONTWRITEBYTECODE=1 \
+  backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Execução local do frontend:
+Quando o núcleo de leads estiver pronto, também vou cobrir validação, distribuição, webhooks duplicados ou fora de ordem e uma bateria de requisições concorrentes. As regras críticas podem receber testes unitários pontuais; o importante é comprovar o comportamento, não aumentar a contagem de testes.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## Volume de dados e concorrência
 
-## Critérios de segurança a acompanhar
+O PDF propõe começar com 100 mil leads e pensar em 1 milhão e mais de 10 milhões. Não precisamos construir essa infraestrutura agora, mas precisamos justificar como o sistema poderia evoluir.
 
-Conforme o PDF, as próximas implementações devem considerar:
+Minha abordagem inicial é manter o banco relacional, paginar consultas na API e definir índices a partir dos filtros realmente usados (como data, status e call center). Quando os modelos e consultas estiverem prontos, vou registrar quais índices foram escolhidos e por quê.
 
-- validação de entrada e mensagens HTTP consistentes;
-- SQL Injection, usando ORM/queries parametrizadas;
-- autorização no backend, e não apenas ocultação no frontend;
-- isolamento dos leads por call center;
-- CSRF conforme a estratégia de sessão adotada;
-- brute force e rate limiting no login;
-- não exposição de hashes e dados sensíveis;
-- autenticação e idempotência dos webhooks;
-- histórico auditável de alterações de status.
+Para 100 leads chegando quase ao mesmo tempo, a distribuição terá de ser persistida de modo consistente, com transações ou operações atômicas comprovadas por teste. Se o SQLite se tornar um limite de escrita ou de volume, a evolução mais provável é PostgreSQL. Redis, filas e particionamento só entram se houver necessidade demonstrada. **Isso é um plano, não uma capacidade já implementada.**
 
-## Testes esperados
+## Limitações e próximos passos
 
-A suíte será construída junto com os domínios, priorizando os fluxos críticos do
-PDF:
+A prioridade agora é completar o núcleo do teste: modelagem e migrations, recebimento de leads com idempotência, dispatcher com concorrência e webhook com histórico e proteção contra eventos indevidos. Depois conectarei as telas à API real, com filtros, paginação e autorização por perfil e call center.
 
-- unitário: validação de lead;
-- unitário: algoritmo de distribuição;
-- unitário: transições de status;
-- integração: `POST /api/leads`;
-- integração: `POST /api/webhooks/callcenter`;
-- concorrência: múltiplos leads distribuídos simultaneamente.
+Para uma segunda versão, avaliaria melhorias de operação e escala a partir dos resultados: renovação de sessão, observabilidade, processamento assíncrono e ajustes de banco, se fizerem sentido. Prefiro registrar uma limitação a apresentar uma funcionalidade incompleta como se estivesse pronta.
+
+## Como usei IA
+
+Usei o ChatGPT para discutir alternativas, revisar código e montar mudanças pontuais. As escolhas e validações ficaram comigo. Alguns exemplos concretos:
+
+- Comecei com sessões do Flask. Depois comparei essa opção com JWT e optei por Flask-JWT-Extended, mantendo cookies e revogação no banco, sem Redis ou refresh token.
+- Pedi uma revisão para cortar redundâncias e evitar abstrações sem benefício. Também mantive a separação entre autenticação (quem é o usuário) e autorização (o que ele pode acessar).
+- Um teste de expiração criado com auxílio da IA falhou porque gerava um token já expirado durante o login. Corrigi o cenário para expirar **depois** de um login bem-sucedido.
+- A validação encontrou problemas locais de permissões em `__pycache__` e dependências do frontend. Usei testes e build no Docker para validar sem acrescentar mecanismos ao produto.
+
+Os resultados atuais foram conferidos com testes de integração, lint e build. Vou continuar registrando decisões, erros e sugestões rejeitadas conforme as próximas funcionalidades forem implementadas. Os artefatos de instruções e planos utilizados no desenvolvimento também precisam ser preservados no repositório antes da entrega.
