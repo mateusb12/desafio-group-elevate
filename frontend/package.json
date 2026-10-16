@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "prepare": "sh scripts/setup-git-hooks.sh",
     "preview": "vite preview"
   },
   "dependencies": {

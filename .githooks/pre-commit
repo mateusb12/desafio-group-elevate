@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+staged_files=$(mktemp)
+trap 'rm -f "$staged_files"' EXIT HUP INT TERM
+
+git diff --cached --name-only --diff-filter=ACMR -z -- \
+  ':(glob)frontend/**/*.js' \
+  ':(glob)frontend/**/*.jsx' \
+  ':(glob)frontend/**/*.ts' \
+  ':(glob)frontend/**/*.tsx' > "$staged_files"
+
+if [ -s "$staged_files" ]; then
+  xargs -0 "$root/frontend/node_modules/.bin/oxlint" < "$staged_files"
+fi
