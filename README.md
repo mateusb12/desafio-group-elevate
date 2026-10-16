@@ -47,6 +47,7 @@ O fluxo completo, quando implementado, será este:
 
 ## Escolhas técnicas
 
+- **uv:** organiza as dependências do backend em `pyproject.toml` e gera o `uv.lock`, que fixa as versões para reproduzir o ambiente. Assim, não precisamos manter um `requirements.txt` manualmente.
 - **Flask e SQLAlchemy:** uma API pequena com modelos relacionais, sem camadas extras antes de elas serem necessárias.
 - **PostgreSQL:** permite coordenar atualizações simultâneas com transações e locks por linha, algo importante para o dispatcher. Continua simples de executar pelo Compose.
 - **React, TypeScript e Vite:** interface separada da API, com um proxy de desenvolvimento para as chamadas `/api`.
