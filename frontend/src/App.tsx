@@ -90,14 +90,18 @@ function Sidebar({
   onToggleTheme: () => void
   onLogout: () => void
 }) {
-  const navigation: { id: Section; label: string; to: string }[] = user.role === 'ADMIN'
+  const [workspaceOpen, setWorkspaceOpen] = useState(true)
+  const [labOpen, setLabOpen] = useState(true)
+  const workspaceNavigation: { id: Section; label: string; to: string }[] = user.role === 'ADMIN'
     ? [
         { id: 'dashboard', label: 'Visão geral', to: '/dashboard' },
         { id: 'leads', label: 'Leads', to: '/leads' },
         { id: 'dispatcher', label: 'Distribuição', to: '/dispatcher' },
-        { id: 'lab', label: 'LAB', to: '/lab' },
       ]
     : [{ id: 'leads', label: 'Meus leads', to: '/leads' }]
+  const labNavigation: { id: Section; label: string; to: string }[] = user.role === 'ADMIN'
+    ? [{ id: 'lab', label: 'Leads', to: '/lab' }]
+    : []
 
   return (
       <aside className="flex w-16 shrink-0 flex-col border-r border-slate-200 bg-white px-2 py-4 dark:border-white/10 dark:bg-[#0d1320] sm:w-60 sm:px-4">
@@ -105,18 +109,53 @@ function Sidebar({
           <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-indigo-500 text-white">G</span>
           <span className="hidden sm:inline">Group Elevate</span>
         </NavLink>
-        <p className="mb-2 hidden px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 sm:block">Workspace</p>
-        <nav className="flex flex-col gap-1" aria-label="Navegação principal">
-          {navigation.map((item) => {
-            const icon = item.id === 'dashboard' ? '▦' : item.id === 'leads' ? '≡' : item.id === 'dispatcher' ? '⇄' : '✦'
-            return (
-              <NavLink key={item.id} to={item.to} aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
-                <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center text-base">{icon}</span>
-                <span className="hidden sm:inline">{item.label}</span>
-              </NavLink>
-            )
-          })}
-        </nav>
+        <button
+          type="button"
+          onClick={() => setWorkspaceOpen((open) => !open)}
+          aria-expanded={workspaceOpen}
+          aria-controls="workspace-navigation"
+          className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-widest text-slate-400 transition hover:bg-slate-100 dark:hover:bg-white/5 sm:justify-between"
+        >
+          <span>Workspace</span>
+          <span aria-hidden="true" className={`text-xs transition-transform ${workspaceOpen ? 'rotate-90' : ''}`}>›</span>
+        </button>
+        {workspaceOpen && (
+          <nav id="workspace-navigation" className="flex flex-col gap-1" aria-label="Navegação principal">
+            {workspaceNavigation.map((item) => {
+              const icon = item.id === 'dashboard' ? '▦' : item.id === 'leads' ? '≡' : item.id === 'dispatcher' ? '⇄' : '✦'
+              return (
+                <NavLink key={item.id} to={item.to} aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
+                  <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center text-base">{icon}</span>
+                  <span className="hidden sm:inline">{item.label}</span>
+                </NavLink>
+              )
+            })}
+          </nav>
+        )}
+        {labNavigation.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={() => setLabOpen((open) => !open)}
+              aria-expanded={labOpen}
+              aria-controls="lab-navigation"
+              className="mb-2 mt-4 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-widest text-slate-400 transition hover:bg-slate-100 dark:hover:bg-white/5 sm:justify-between"
+            >
+              <span>LAB</span>
+              <span aria-hidden="true" className={`text-xs transition-transform ${labOpen ? 'rotate-90' : ''}`}>›</span>
+            </button>
+            {labOpen && (
+              <nav id="lab-navigation" className="flex flex-col gap-1" aria-label="Navegação do LAB">
+                {labNavigation.map((item) => (
+                  <NavLink key={item.id} to={item.to} aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
+                    <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center text-base">✦</span>
+                    <span className="hidden sm:inline">{item.label}</span>
+                  </NavLink>
+                ))}
+              </nav>
+            )}
+          </>
+        )}
         <div className="mt-auto border-t border-slate-200 pt-4 dark:border-white/10">
           <div className="mb-3 flex items-center justify-center gap-3 px-2 sm:justify-start">
             <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-white/10 dark:text-slate-200">{user.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</span>
