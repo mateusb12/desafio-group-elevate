@@ -7,8 +7,9 @@ import { DashboardPage } from './features/dashboard/DashboardPage'
 import { LeadsPage } from './features/leads/LeadsPage'
 import { DispatcherPage } from './features/dispatcher/DispatcherPage'
 import { LabPage } from './features/lab/LabPage'
+import { LabWebhooksPage } from './features/lab/LabWebhooksPage'
 
-type Section = 'dashboard' | 'leads' | 'dispatcher' | 'lab'
+type Section = 'dashboard' | 'leads' | 'dispatcher' | 'lab' | 'lab-webhooks'
 
 function App() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
@@ -54,6 +55,7 @@ function App() {
         <Route path="leads" element={user ? <LeadsPage user={user} /> : <Navigate to="/login" replace />} />
         <Route path="dispatcher" element={user?.role === 'ADMIN' ? <DispatcherPage /> : <Navigate to="/leads" replace />} />
         <Route path="lab" element={user?.role === 'ADMIN' ? <LabPage /> : <Navigate to="/leads" replace />} />
+        <Route path="lab/webhooks" element={user?.role === 'ADMIN' ? <LabWebhooksPage /> : <Navigate to="/leads" replace />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? defaultPath : '/login'} replace />} />
     </Routes>
@@ -100,7 +102,10 @@ function Sidebar({
       ]
     : [{ id: 'leads', label: 'Meus leads', to: '/leads' }]
   const labNavigation: { id: Section; label: string; to: string }[] = user.role === 'ADMIN'
-    ? [{ id: 'lab', label: 'Leads', to: '/lab' }]
+    ? [
+        { id: 'lab', label: 'Leads', to: '/lab' },
+        { id: 'lab-webhooks', label: 'Webhooks', to: '/lab/webhooks' },
+      ]
     : []
 
   return (

@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from auth.models import User, UserRole
 from database import db_session
 from . import leads_blueprint
-from .models import Lead
+from .models import Contact, Event, Lead
 from pydantic import ValidationError
 from .schemas import LeadInput, validation_error_message
 
@@ -47,25 +47,84 @@ def receive_lead():
     canonical = json.dumps(clean, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
     digest = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
     new_id = str(uuid4())
-    statement = (
-        insert(Lead)
-        .values(
-            id=new_id, **clean, payload_hash=digest, status='new',
-            received_at=datetime.now(timezone.utc),
-        )
-        .on_conflict_do_nothing(index_elements=[Lead.payload_hash])
-        .returning(Lead.id)
-    )
 
     with db_session() as db, db.begin():
-        created_id = db.scalar(statement)
+        # O e-mail normalizado identifica o contato.
+        # Reenvios não sobrescrevem os dados do cadastro original.
+        contact_id = db.scalar(
+            insert(Contact)
+            .values(
+                id=str(uuid4()),
+                name=clean['name'],
+                email=clean['email'],
+                phone=clean['phone'],
+            )
+            .on_conflict_do_nothing(index_elements=[Contact.email])
+            .returning(Contact.id)
+        )
+
+        if contact_id is None:
+            contact_id = db.scalar(
+                select(Contact.id).where(Contact.email == clean['email'])
+            )
+
+        lead_data = {
+            key: value
+            for key, value in clean.items()
+            if key not in ('name', 'email', 'phone')
+        }
+
+        created_id = db.scalar(
+            insert(Lead)
+            .values(
+                id=new_id,
+                contact_id=contact_id,
+                **lead_data,
+                payload_hash=digest,
+                status='new',
+                received_at=datetime.now(timezone.utc),
+            )
+            .on_conflict_do_nothing(index_elements=[Lead.payload_hash])
+            .returning(Lead.id)
+        )
+
         lead_id = created_id or db.scalar(
             select(Lead.id).where(Lead.payload_hash == digest)
         )
 
+        if created_id is not None:
+            db.add(Event(
+                lead_id=created_id,
+                status='new',
+                event_at=datetime.now(timezone.utc),
+            ))
+
     return jsonify(id=lead_id, status='new', duplicate=created_id is None), (
         201 if created_id else 200
     )
+
+
+@leads_blueprint.get('/lab')
+@jwt_required()
+def list_lab_leads():
+    with db_session() as db:
+        user = db.scalar(
+            select(User).where(
+                User.id == get_jwt_identity(),
+                User.is_active.is_(True),
+            )
+        )
+
+        if user is None or user.role != UserRole.ADMIN:
+            return jsonify(error='Acesso restrito ao administrador.'), 403
+
+        lead_ids = db.scalars(
+            select(Lead.id)
+            .order_by(Lead.received_at.desc())
+            .limit(100)
+        ).all()
+
+    return jsonify(leads=lead_ids)
 
 
 @leads_blueprint.delete('/lab')
@@ -82,6 +141,7 @@ def clear_lab_leads():
             return jsonify(error='Apenas administradores podem limpar os leads do LAB.'), 403
 
         deleted = db.execute(delete(Lead)).rowcount or 0
+        db.execute(delete(Contact))
         db.commit()
 
     return jsonify(deleted=deleted, status='ok')

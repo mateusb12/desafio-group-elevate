@@ -11,6 +11,8 @@ from auth.service import seed_demo_users
 from database import db_session, initialize_database
 from dispatcher import models as dispatcher_models  # noqa: F401
 from leads import leads_blueprint
+from webhooks import webhooks_blueprint
+from leads import models as leads_models  # noqa: F401
 
 
 def create_app() -> Flask:
@@ -36,6 +38,7 @@ def create_app() -> Flask:
 
     app.register_blueprint(auth_blueprint)
     app.register_blueprint(leads_blueprint)
+    app.register_blueprint(webhooks_blueprint)
 
     @app.get("/")
     def hello():
