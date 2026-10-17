@@ -41,7 +41,7 @@ O fluxo completo, quando implementado, será este:
 4. O call center informa o andamento pelo webhook `POST /api/webhooks/callcenter`. O sistema guarda o histórico, inclusive quando chegam eventos repetidos ou fora de ordem.
 5. O administrador acompanha os números e os leads. Cada operador acessa apenas os leads do próprio call center.
 
-**O que já está funcionando:** login, identificação do usuário autenticado e logout usando a API e o PostgreSQL. Há perfis de administrador e operador associados aos call centers. A interface de dashboard, lista de leads e configuração de pesos já existe, mas ainda utiliza dados de exemplo.
+**O que já está funcionando:** autenticação de administrador e operadores com JWT, PostgreSQL e `POST /api/leads`, que valida os dados, persiste leads e trata o reenvio de payloads idênticos. O LAB já chama essa API e exibe o resultado de cada envio. Dashboard, lista de leads e configuração de pesos ainda usam dados de exemplo; o dispatcher e os webhooks ainda não estão conectados ao fluxo real.
 
 **O que ainda é demonstração:** os leads exibidos não vêm do banco; a tela de distribuição salva percentuais no navegador (`localStorage`), não altera os pesos do backend; o dispatcher ainda não distribui leads. O isolamento por call center na API de leads também não está implementado.
 
@@ -76,13 +76,13 @@ docker compose run --build --rm -T \
   backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Quando o núcleo de leads estiver pronto, também vou cobrir validação, distribuição, webhooks duplicados ou fora de ordem e uma bateria de requisições concorrentes. As regras críticas podem receber testes unitários pontuais; o importante é comprovar o comportamento, não aumentar a contagem de testes.
+Com o recebimento de leads implementado, vou complementar a validação visual com testes de integração de campos inválidos, idempotência e casos de borda. Distribuição concorrente e webhooks duplicados ou fora de ordem terão testes próprios quando essas funcionalidades forem construídas.
 
 ### LAB de testes
 
-Antes de implementar a API de leads, criei um laboratório no frontend usando Faker. Escolho um cenário e gero de 1 a 100 cadastros com produto, funil, origem, campanha e afiliado aleatórios. Também consigo simular entradas inválidas, duplicatas e uma mistura de situações para observar como a API reage.
+Criei o LAB antes do endpoint para ter uma forma visual de experimentar a entrada de dados. Com Faker, ele gera de 1 a 100 leads, deixando produto, funil, origem, campanha e afiliado aleatórios. Posso escolher cenários válidos, campos inválidos, duplicados ou uma mistura deles.
 
-Por enquanto, o LAB apenas gera e permite copiar os payloads: não envia requisições nem mede desempenho. Quando a API estiver pronta, cada objeto será enviado separadamente. Ele complementa os testes automatizados, mas não substitui os testes de integração e concorrência.
+O LAB agora envia cada lead individualmente para `POST /api/leads` e mostra o status HTTP, o tempo de resposta e o resultado por linha. **Verde significa comportamento esperado**, não necessariamente HTTP 2xx: um campo inválido corretamente rejeitado também deve passar no teste.
 
 ## Volume de dados e concorrência
 
@@ -94,7 +94,7 @@ Para 100 leads chegando quase ao mesmo tempo, a distribuição terá de ser pers
 
 ## Limitações e próximos passos
 
-A prioridade agora é completar o núcleo do teste: migrations do PostgreSQL, modelagem, recebimento de leads com idempotência, dispatcher com concorrência e webhook com histórico e proteção contra eventos indevidos. Depois conectarei as telas à API real, com filtros, paginação e autorização por perfil e call center.
+A próxima etapa é conferir no LAB os cenários inválidos, mistos e duplicados. Depois, vou criar a primeira migration com Alembic para versionar o schema já validado e retirar o `create_all()` automático. Na sequência, implementarei o dispatcher com concorrência, os webhooks e a integração das demais telas com a API real, incluindo filtros, paginação e autorização por perfil e call center.
 
 Para uma segunda versão, avaliaria melhorias de operação e escala a partir dos resultados: renovação de sessão, observabilidade, processamento assíncrono e ajustes de banco, se fizerem sentido. Prefiro registrar uma limitação a apresentar uma funcionalidade incompleta como se estivesse pronta.
 
