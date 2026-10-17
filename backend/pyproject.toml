@@ -7,4 +7,5 @@ dependencies = [
     "Flask-JWT-Extended>=4.7,<5.0",
     "SQLAlchemy>=2.0,<3.0",
     "psycopg[binary]>=3.2,<4.0",
+    "pydantic[email]>=2.10,<3",
 ]

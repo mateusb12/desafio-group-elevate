@@ -1,6 +1,5 @@
 import hashlib
 import json
-import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -13,45 +12,26 @@ from auth.models import User, UserRole
 from database import db_session
 from . import leads_blueprint
 from .models import Lead
+from pydantic import ValidationError
+from .schemas import LeadInput, validation_error_message
 
 # Catálogo mínimo para os cenários atuais do LAB; futuramente virá do banco.
 PRODUCTS = {'nutralean', 'curso-vendas', 'marketing-digital'}
 FUNNELS = {'vsl-01', 'webinar-02', 'checkout-03'}
-FIELDS = {
-    'name': 120, 'email': 255, 'phone': 20, 'product': 80,
-    'funnel': 80, 'source': 80, 'campaign': 120, 'affiliate_id': 80,
-}
-UTM_FIELDS = ('source', 'medium', 'campaign', 'content')
 
 
 def validate_lead(body):
-    if not isinstance(body, dict):
-        return None, 'O payload deve ser um objeto JSON.'
+    try:
+        clean = LeadInput.model_validate(body).model_dump()
 
-    clean = {}
-    for key, max_length in FIELDS.items():
-        value = body.get(key)
-        if not isinstance(value, str) or not value.strip() or len(value) > max_length:
-            return None, f'Campo inválido ou ausente: {key}.'
-        clean[key] = value.strip()
+        if clean['product'] not in PRODUCTS:
+            return None, 'Produto desconhecido.'
+        if clean['funnel'] not in FUNNELS:
+            return None, 'Funil desconhecido.'
 
-    clean['email'] = clean['email'].lower()
-    if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', clean['email']):
-        return None, 'E-mail inválido.'
-    if not re.fullmatch(r'\+55\d{11}', clean['phone']):
-        return None, 'Telefone inválido. Use +55 seguido de DDD e 9 dígitos.'
-    if clean['product'] not in PRODUCTS:
-        return None, 'Produto desconhecido.'
-    if clean['funnel'] not in FUNNELS:
-        return None, 'Funil desconhecido.'
-
-    utm = body.get('utm')
-    if not isinstance(utm, dict):
-        return None, 'UTM deve ser um objeto.'
-    if any(not isinstance(utm.get(k), str) or not utm[k].strip() for k in UTM_FIELDS):
-        return None, 'UTM malformada.'
-    clean['utm'] = {key: utm[key].strip() for key in UTM_FIELDS}
-    return clean, None
+        return clean, None
+    except ValidationError as exc:
+        return None, validation_error_message(exc, body)
 
 
 @leads_blueprint.post('')

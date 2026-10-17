@@ -49,6 +49,7 @@ O fluxo completo, quando implementado, será este:
 
 - **uv:** organiza as dependências do backend em `pyproject.toml` e gera o `uv.lock`, que fixa as versões para reproduzir o ambiente. Assim, não precisamos manter um `requirements.txt` manualmente.
 - **Flask e SQLAlchemy:** uma API pequena com modelos relacionais, sem camadas extras antes de elas serem necessárias.
+- **Pydantic:** substituí a validação manual por contratos declarativos, centralizando campos obrigatórios, tipos, formatos e normalização. Regras que dependem do estado da aplicação, como produto e funil existentes, continuam separadas da validação do payload.
 - **PostgreSQL:** permite coordenar atualizações simultâneas com transações e locks por linha, algo importante para o dispatcher. Continua simples de executar pelo Compose.
 - **React, TypeScript e Vite:** interface separada da API, com um proxy de desenvolvimento para as chamadas `/api`.
 - **Docker Compose:** frontend e backend sobem com um comando, sem exigir configuração manual de serviços adicionais.
@@ -111,3 +112,6 @@ Usei o ChatGPT para discutir alternativas, revisar código e montar mudanças po
 Os resultados atuais foram conferidos com testes de integração, lint e build. Vou continuar registrando decisões, erros e sugestões rejeitadas conforme as próximas funcionalidades forem implementadas. Os artefatos de instruções e planos utilizados no desenvolvimento também precisam ser preservados no repositório antes da entrega.
 
 Usei IA para acelerar a implementação e a criação dos testes, mas não considerei os resultados suficientes por si só. Depois de validar os cenários no LAB, fiz uma segunda verificação diretamente no PostgreSQL, cruzando os IDs e os dados recebidos com os registros persistidos. Também confirmei que os leads rejeitados não haviam sido gravados. O objetivo foi verificar o comportamento real do sistema, em vez de confiar apenas nos resultados apresentados pela interface.
+
+
+Durante a migração para Pydantic, o LAB revelou uma regressão que os testes iniciais não detectaram: produtos e funis inexistentes estavam sendo aceitos. Corrigi as regras, adicionei testes de regressão e validei novamente o fluxo completo.
