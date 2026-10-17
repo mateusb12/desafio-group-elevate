@@ -21,6 +21,7 @@ LOCK_SQL = "SELECT pg_advisory_xact_lock(41625, 20261017)"
 
 def build_lead_payload(campaign, number):
     return {
+        "_idempotency_key": str(uuid4()),
         "name": f"Teste Concorrencia {number}",
         "email": f"race-{campaign}-{number}@example.com",
         "phone": "+5585990000000",
@@ -41,8 +42,14 @@ def build_lead_payload(campaign, number):
 def post_single_lead_request(body):
     request = Request(
         URL,
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
+        data=json.dumps({
+            key: value for key, value in body.items()
+            if key != "_idempotency_key"
+        }).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Idempotency-Key": body["_idempotency_key"],
+        },
         method="POST",
     )
     try:

@@ -10,6 +10,11 @@ from sqlalchemy.dialects.postgresql import insert
 
 from auth.models import User, UserRole
 from database import db_session
+from .idempotency import (
+    acquire_idempotency_lock,
+    normalize_idempotency_key,
+    calculate_payload_hash,
+)
 from dispatcher.service import choose_call_center
 from dispatcher.models import CallCenter
 from . import leads_blueprint
@@ -39,20 +44,45 @@ def validate_lead(body):
 @leads_blueprint.post('')
 def receive_lead():
     if not request.is_json:
-        return jsonify(error='Envie Content-Type: application/json.'), 415
+        return jsonify(
+            error='Envie Content-Type: application/json.'
+        ), 415
+
+    key = normalize_idempotency_key(
+        request.headers.get('Idempotency-Key')
+    )
+
+    if key is None:
+        return jsonify(
+            error='Idempotency-Key obrigatória: informe um UUID v4.'
+        ), 400
 
     clean, error = validate_lead(request.get_json(silent=True))
     if error:
         return jsonify(error=error), 400
 
-    # Idempotência demonstrativa por conteúdo; futuramente usar ID da origem.
-    canonical = json.dumps(clean, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
-    digest = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
-    new_id = str(uuid4())
+    payload_hash = calculate_payload_hash(clean)
 
     with db_session() as db, db.begin():
-        # O e-mail normalizado identifica o contato.
-        # Reenvios não sobrescrevem os dados do cadastro original.
+        # Requisições com a mesma chave esperam umas pelas outras.
+        acquire_idempotency_lock(db, key)
+
+        existing = db.scalar(
+            select(Lead).where(Lead.idempotency_key == key)
+        )
+
+        if existing is not None:
+            if existing.payload_hash != payload_hash:
+                return jsonify(
+                    error='Idempotency-Key reutilizada com dados diferentes.'
+                ), 409
+
+            return jsonify(
+                id=existing.id,
+                status='new',
+                duplicate=True,
+            ), 200
+
         contact_id = db.scalar(
             insert(Contact)
             .values(
@@ -67,44 +97,43 @@ def receive_lead():
 
         if contact_id is None:
             contact_id = db.scalar(
-                select(Contact.id).where(Contact.email == clean['email'])
+                select(Contact.id).where(
+                    Contact.email == clean['email']
+                )
             )
 
         lead_data = {
-            key: value
-            for key, value in clean.items()
-            if key not in ('name', 'email', 'phone')
+            field: value
+            for field, value in clean.items()
+            if field not in ('name', 'email', 'phone')
         }
 
-        created_id = db.scalar(
-            insert(Lead)
-            .values(
-                id=new_id,
-                contact_id=contact_id,
-                call_center_id=choose_call_center(db),
-                **lead_data,
-                payload_hash=digest,
-                status='new',
-                received_at=datetime.now(timezone.utc),
-            )
-            .on_conflict_do_nothing(index_elements=[Lead.payload_hash])
-            .returning(Lead.id)
-        )
+        lead_id = str(uuid4())
 
-        lead_id = created_id or db.scalar(
-            select(Lead.id).where(Lead.payload_hash == digest)
-        )
+        db.add(Lead(
+            id=lead_id,
+            contact_id=contact_id,
+            call_center_id=choose_call_center(db),
+            idempotency_key=key,
+            payload_hash=payload_hash,
+            status='new',
+            received_at=datetime.now(timezone.utc),
+            **lead_data,
+        ))
 
-        if created_id is not None:
-            db.add(Event(
-                lead_id=created_id,
-                status='new',
-                event_at=datetime.now(timezone.utc),
-            ))
+        db.flush()
 
-    return jsonify(id=lead_id, status='new', duplicate=created_id is None), (
-        201 if created_id else 200
-    )
+        db.add(Event(
+            lead_id=lead_id,
+            status='new',
+            event_at=datetime.now(timezone.utc),
+        ))
+
+    return jsonify(
+        id=lead_id,
+        status='new',
+        duplicate=False,
+    ), 201
 
 
 @leads_blueprint.get('')

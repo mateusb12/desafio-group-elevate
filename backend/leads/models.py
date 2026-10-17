@@ -1,7 +1,7 @@
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,7 +37,12 @@ class Lead(Base):
     campaign: Mapped[str] = mapped_column(String(120), nullable=False)
     affiliate_id: Mapped[str] = mapped_column(String(80), nullable=False)
     utm: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    payload_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(36), unique=True, nullable=True
+    )
+    payload_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
     status: Mapped[str] = mapped_column(String(30), nullable=False, default='new')
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
@@ -46,6 +51,12 @@ class Lead(Base):
 
 class Event(Base):
     __tablename__ = 'events'
+    __table_args__ = (
+        UniqueConstraint(
+            'lead_id', 'external_id',
+            name='uq_events_lead_external',
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True,

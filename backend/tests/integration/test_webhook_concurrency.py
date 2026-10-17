@@ -81,7 +81,11 @@ class TestWebhookConcurrency(unittest.TestCase):
             },
         }
 
-        status, response = post_json_request("/api/leads", payload)
+        status, response = post_json_request(
+            "/api/leads",
+            payload,
+            {"Idempotency-Key": str(uuid4())},
+        )
 
         self.assertEqual(status, 201, response)
         self.lead_id = response["id"]

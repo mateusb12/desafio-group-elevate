@@ -45,6 +45,63 @@ O fluxo completo, quando implementado, será este:
 
 **O que ainda é demonstração:** os leads exibidos não vêm do banco; a tela de distribuição salva percentuais no navegador (`localStorage`), não altera os pesos do backend; o dispatcher ainda não distribui leads. O isolamento por call center na API de leads também não está implementado.
 
+## Idempotência
+
+### Recebimento de leads
+
+O endpoint `POST /api/leads` exige o header `Idempotency-Key`
+contendo um UUID v4.
+
+A chave identifica uma **operação lógica de cadastro**, não a pessoa.
+O cliente gera uma chave por novo cadastro e reutiliza a mesma chave
+se precisar reenviar aquela operação.
+
+| Situação | Resposta |
+| --- | --- |
+| Chave nova e payload válido | HTTP 201, novo lead |
+| Mesma chave e mesmo payload | HTTP 200, `duplicate: true`, mesmo ID |
+| Mesma chave e payload diferente | HTTP 409 |
+| Mesmo payload e chave diferente | HTTP 201, novo lead |
+| Chave ausente ou inválida | HTTP 400 |
+
+A chave fica em `leads.idempotency_key`, com restrição `UNIQUE`.
+O `payload_hash`, calculado a partir do payload validado e normalizado,
+é usado para verificar se uma chave está sendo reutilizada com
+conteúdo diferente. O hash **não é mais uma restrição de unicidade**:
+a mesma pessoa pode realizar dois cadastros legítimos.
+
+Para evitar corrida entre requisições simultâneas com a mesma chave,
+a API utiliza um `pg_advisory_xact_lock` derivado do UUID. A consulta
+de duplicidade e a gravação ocorrem na mesma transação. O lock é
+liberado no `COMMIT` ou `ROLLBACK`.
+
+A distribuição também utiliza um advisory lock transacional próprio,
+protegendo a decisão global de alocação entre call centers.
+
+### Webhooks
+
+Em `POST /api/webhooks/callcenter`, a identidade do acontecimento é
+a combinação `(lead_id, external_id)`.
+
+| Situação | Resposta |
+| --- | --- |
+| Novo acontecimento | HTTP 201 |
+| Mesmo identificador, status e horário | HTTP 200, `duplicate: true` |
+| Mesmo identificador, dados diferentes | HTTP 409 |
+
+O PostgreSQL possui `UNIQUE(lead_id, external_id)` e cada webhook
+usa `SELECT ... FOR UPDATE` na linha do lead. Assim, dois eventos
+simultâneos do mesmo lead são processados serialmente.
+
+Eventos atrasados são guardados no histórico, mas somente eventos
+com `event_at` posterior ao último evento alteram o status atual.
+Eventos de leads diferentes podem ser processados em paralelo.
+
+**Limitação:** os sistemas remetentes precisam preservar o mesmo
+identificador em tentativas de reenvio. No webhook, `external_id`
+é fornecido pelo call center; no recebimento de leads, a
+`Idempotency-Key` é fornecida por quem envia o cadastro.
+
 ## Escolhas técnicas
 
 - **uv:** organiza as dependências do backend em `pyproject.toml` e gera o `uv.lock`, que fixa as versões para reproduzir o ambiente. Assim, não precisamos manter um `requirements.txt` manualmente.

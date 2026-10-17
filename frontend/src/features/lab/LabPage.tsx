@@ -26,7 +26,11 @@ type LeadPayload = {
   affiliate_id: string
   utm: Utm | string
 }
-type PreviewLead = { payload: LeadPayload; scenario: Scenario }
+type PreviewLead = {
+  payload: LeadPayload
+  scenario: Scenario
+  idempotencyKey: string
+}
 type Result = { http: number | null; ok: boolean; ms: number; detail: string }
 type Expected = { http: number; detail: string }
 
@@ -89,7 +93,7 @@ function leadForScenario(scenario: Scenario): PreviewLead {
     case 'invalid-utm': lead.utm = 'utm-invalida'; break
     case 'invalid-types': lead.name = 12345; break
   }
-  return { payload: lead, scenario }
+  return { payload: lead, scenario, idempotencyKey: crypto.randomUUID() }
 }
 
 function expectedForScenario(scenario: Scenario, index: number): Expected {
@@ -139,8 +143,13 @@ export function LabPage() {
     event.preventDefault()
     const amount = Math.min(100, Math.max(1, quantity))
     const repeated = scenario === 'duplicate' ? randomLead() : null
+    const repeatedKey = repeated ? crypto.randomUUID() : null
     const generated = Array.from({ length: amount }, (_, index) => repeated
-      ? { payload: repeated, scenario: 'duplicate' as const }
+      ? {
+          payload: repeated,
+          scenario: 'duplicate' as const,
+          idempotencyKey: repeatedKey!,
+        }
       : leadForScenario(scenario === 'mixed' ? issueScenarios[index % issueScenarios.length] : scenario))
     setLeads(generated)
     setResults({})
@@ -173,7 +182,10 @@ export function LabPage() {
           const response = await fetch('/api/api/leads', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Idempotency-Key': item.idempotencyKey,
+            },
             body: JSON.stringify(item.payload),
           })
           const text = await response.text()
