@@ -10,6 +10,7 @@ from auth.models import TokenBlocklist
 from auth.service import seed_demo_users
 from database import db_session, initialize_database
 from dispatcher import models as dispatcher_models  # noqa: F401
+from leads import leads_blueprint
 
 
 def create_app() -> Flask:
@@ -34,6 +35,7 @@ def create_app() -> Flask:
             ) is not None
 
     app.register_blueprint(auth_blueprint)
+    app.register_blueprint(leads_blueprint)
 
     @app.get("/")
     def hello():

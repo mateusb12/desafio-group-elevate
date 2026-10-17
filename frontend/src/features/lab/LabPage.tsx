@@ -26,6 +26,8 @@ type LeadPayload = {
   utm: Utm | string
 }
 type PreviewLead = { payload: LeadPayload; scenario: Scenario }
+type Result = { http: number | null; ok: boolean; ms: number; detail: string }
+
 
 const scenarios: { id: Scenario; label: string; description: string }[] = [
   { id: 'valid', label: 'Leads válidos', description: 'Cadastros completos para testar o recebimento.' },
@@ -92,6 +94,8 @@ export function LabPage() {
   const [scenario, setScenario] = useState<Scenario>('valid')
   const [leads, setLeads] = useState<PreviewLead[]>([])
   const [notice, setNotice] = useState('')
+  const [sending, setSending] = useState(false)
+  const [results, setResults] = useState<Record<number, Result>>({})
 
   const payload = useMemo(() => JSON.stringify(leads.map(({ payload: lead }) => lead), null, 2), [leads])
   const selected = scenarios.find((item) => item.id === scenario)!
@@ -104,6 +108,7 @@ export function LabPage() {
       ? { payload: repeated, scenario: 'duplicate' as const }
       : leadForScenario(scenario === 'mixed' ? issueScenarios[index % issueScenarios.length] : scenario))
     setLeads(generated)
+    setResults({})
     setNotice(`${amount} lead(s) fictício(s) gerado(s).`)
   }
 
@@ -113,6 +118,67 @@ export function LabPage() {
       setNotice('JSON copiado para a área de transferência.')
     } catch {
       setNotice('Não foi possível copiar o JSON.')
+    }
+  }
+
+  async function sendLeads() {
+    if (!leads.length || sending) return
+    setSending(true)
+    setResults({})
+    setNotice(`Enviando ${leads.length} lead(s)...`)
+    let approved = 0
+    let firstDuplicateId: string | undefined
+
+    try {
+      for (const [index, item] of leads.entries()) {
+        const started = performance.now()
+        let result: Result
+        try {
+          // O Vite atual remove o primeiro /api antes de encaminhar ao Flask.
+          const response = await fetch('/api/api/leads', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item.payload),
+          })
+          const text = await response.text()
+          let body: Record<string, unknown> = {}
+          try {
+            const parsed: unknown = JSON.parse(text)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              body = parsed as Record<string, unknown>
+            }
+          } catch { /* Respostas não JSON também aparecem como falha na tabela. */ }
+
+          const id = typeof body.id === 'string' ? body.id : undefined
+          const invalid = item.scenario !== 'valid' && item.scenario !== 'duplicate'
+          let ok = invalid
+            ? response.status === 400
+            : (response.status === 201 || response.status === 200) && !!id
+
+          if (item.scenario === 'duplicate') {
+            if (firstDuplicateId === undefined) firstDuplicateId = id
+            else ok = ok && response.status === 200 && id === firstDuplicateId
+          }
+
+          const description = typeof body.error === 'string'
+            ? body.error
+            : id ?? (text.slice(0, 120) || 'Resposta sem detalhes')
+          result = { http: response.status, ok, ms: Math.round(performance.now() - started), detail: description }
+        } catch (error) {
+          result = {
+            http: null,
+            ok: false,
+            ms: Math.round(performance.now() - started),
+            detail: error instanceof Error ? error.message : 'Erro de rede',
+          }
+        }
+        if (result.ok) approved++
+        setResults((previous) => ({ ...previous, [index]: result }))
+      }
+      setNotice(`${approved}/${leads.length} cenários aprovados.`)
+    } finally {
+      setSending(false)
     }
   }
 
@@ -150,11 +216,15 @@ export function LabPage() {
           </label>
           <p className="mt-2 min-h-10 text-xs leading-relaxed text-slate-500">{selected.description}</p>
 
-          <button className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500" type="submit">
+          <button disabled={sending} className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50" type="submit">
             Gerar leads fictícios
           </button>
+          <button type="button" disabled={!leads.length || sending} onClick={() => void sendLeads()}
+            className="mt-3 min-h-11 w-full rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-600 hover:bg-emerald-600/10 disabled:opacity-40">
+            {sending ? 'Enviando...' : `Enviar ${leads.length} lead(s) ao backend`}
+          </button>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Produto, funil, origem, campanha e afiliado são aleatórios. Os dados ficam apenas no navegador.
+            Produto, funil, origem, campanha e afiliado são aleatórios.
           </p>
         </form>
 
@@ -168,6 +238,13 @@ export function LabPage() {
           </div>
 
           {notice && <p role="status" className="mb-3 text-sm text-indigo-500">{notice}</p>}
+          {Object.keys(results).length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-4 rounded-lg bg-slate-100 px-4 py-3 text-sm dark:bg-white/5">
+              <span className="text-emerald-600">✓ Aprovados: {Object.values(results).filter((result) => result.ok).length}</span>
+              <span className="text-red-600">✕ Falhas: {Object.values(results).filter((result) => !result.ok).length}</span>
+              <span className="text-slate-500">Processados: {Object.keys(results).length}/{leads.length}</span>
+            </div>
+          )}
           {leads.length === 0 ? (
             <div className="grid min-h-64 place-items-center rounded-lg border border-dashed border-slate-300 px-6 text-center text-sm text-slate-500 dark:border-white/10">
               Configure a quantidade e um cenário para gerar os primeiros leads.
@@ -175,9 +252,9 @@ export function LabPage() {
           ) : (
             <>
               <div className="mb-4 overflow-x-auto rounded-lg border border-slate-200 dark:border-white/10">
-                <table className="w-full min-w-[680px] text-left text-sm">
+                <table className="w-full min-w-[900px] text-left text-sm">
                   <thead className="border-b border-slate-200 text-xs uppercase text-slate-500 dark:border-white/10">
-                    <tr>{['Nome', 'E-mail', 'Produto', 'Origem', 'Cenário'].map((label) => <th key={label} className="px-3 py-2 font-medium">{label}</th>)}</tr>
+                    <tr>{['Nome', 'E-mail', 'Produto', 'Origem', 'Cenário', 'HTTP', 'Resultado'].map((label) => <th key={label} className="px-3 py-2 font-medium">{label}</th>)}</tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                     {leads.map(({ payload: lead, scenario: itemScenario }, index) => (
@@ -187,6 +264,16 @@ export function LabPage() {
                         <td className="px-3 py-3">{lead.product}</td>
                         <td className="px-3 py-3">{lead.source}</td>
                         <td className="px-3 py-3 text-xs text-slate-500">{scenarios.find((s) => s.id === itemScenario)?.label}</td>
+                        <td className="px-3 py-3 font-mono text-xs">{results[index]?.http ?? '—'}</td>
+                        <td className="px-3 py-3 text-xs">
+                          {results[index] ? (
+                            <div className={results[index].ok ? 'text-emerald-600' : 'text-red-600'}>
+                              <span className="font-semibold">{results[index].ok ? '✓ PASSOU' : '✕ FALHOU'}</span>
+                              <span className="ml-2 opacity-70">{results[index].ms} ms</span>
+                              <p className="mt-1 max-w-64 break-words opacity-80">{results[index].detail}</p>
+                            </div>
+                          ) : <span className="text-slate-400">{sending ? 'Aguardando...' : 'Não enviado'}</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
