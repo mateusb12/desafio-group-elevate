@@ -109,3 +109,5 @@ Usei o ChatGPT para discutir alternativas, revisar código e montar mudanças po
 - A validação encontrou problemas locais de permissões em `__pycache__` e dependências do frontend. Usei testes e build no Docker para validar sem acrescentar mecanismos ao produto.
 
 Os resultados atuais foram conferidos com testes de integração, lint e build. Vou continuar registrando decisões, erros e sugestões rejeitadas conforme as próximas funcionalidades forem implementadas. Os artefatos de instruções e planos utilizados no desenvolvimento também precisam ser preservados no repositório antes da entrega.
+
+Usei IA para acelerar a implementação e a criação dos testes, mas não considerei os resultados suficientes por si só. Depois de validar os cenários no LAB, fiz uma segunda verificação diretamente no PostgreSQL, cruzando os IDs e os dados recebidos com os registros persistidos. Também confirmei que os leads rejeitados não haviam sido gravados. O objetivo foi verificar o comportamento real do sistema, em vez de confiar apenas nos resultados apresentados pela interface.

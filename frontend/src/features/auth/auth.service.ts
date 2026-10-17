@@ -9,7 +9,7 @@ function csrfToken(): string | undefined {
   return cookie ? decodeURIComponent(cookie.slice('csrf_access_token='.length)) : undefined
 }
 
-function csrfHeaders(): HeadersInit {
+export function csrfHeaders(): HeadersInit {
   const token = csrfToken()
   return token ? { 'X-CSRF-TOKEN': token } : {}
 }

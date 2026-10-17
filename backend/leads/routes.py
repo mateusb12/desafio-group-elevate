@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from flask import jsonify, request
-from sqlalchemy import select
+from flask_jwt_extended import get_jwt_identity, jwt_required
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
+from auth.models import User, UserRole
 from database import db_session
 from . import leads_blueprint
 from .models import Lead
@@ -84,3 +86,22 @@ def receive_lead():
     return jsonify(id=lead_id, status='new', duplicate=created_id is None), (
         201 if created_id else 200
     )
+
+
+@leads_blueprint.delete('/lab')
+@jwt_required()
+def clear_lab_leads():
+    with db_session() as db:
+        user = db.scalar(
+            select(User).where(
+                User.id == get_jwt_identity(),
+                User.is_active.is_(True),
+            )
+        )
+        if user is None or user.role != UserRole.ADMIN:
+            return jsonify(error='Apenas administradores podem limpar os leads do LAB.'), 403
+
+        deleted = db.execute(delete(Lead)).rowcount or 0
+        db.commit()
+
+    return jsonify(deleted=deleted, status='ok')
