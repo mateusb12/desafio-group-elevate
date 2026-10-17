@@ -20,6 +20,13 @@ class Contact(Base):
 class Lead(Base):
     __tablename__ = 'leads'
 
+    call_center_id: Mapped[str | None] = mapped_column(
+        String(80),
+        ForeignKey('call_centers.id'),
+        nullable=True,
+        index=True,
+    )
+
     contact_id: Mapped[str] = mapped_column(
         String(36), ForeignKey('contacts.id'), nullable=False, index=True
     )
