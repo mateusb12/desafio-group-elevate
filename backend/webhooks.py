@@ -1,12 +1,22 @@
 # Group Elevate webhook callcenter
 import hmac
 import os
-from datetime import datetime, timezone
+from datetime import timezone
+from typing import Literal
 from uuid import uuid4
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy import func, select
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictStr,
+    ValidationError,
+    field_validator,
+)
 
 from auth.models import User, UserRole
 from database import db_session
@@ -16,10 +26,23 @@ webhooks_blueprint = Blueprint(
     'webhooks', __name__, url_prefix='/api/webhooks'
 )
 
-STATUSES = {
-    'new', 'contacted', 'no_answer', 'callback',
-    'qualified', 'sale', 'refund', 'invalid',
-}
+class CallcenterWebhookInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    lead_id: StrictStr = Field(min_length=1)
+    external_id: StrictStr = Field(min_length=1, max_length=120)
+    status: Literal[
+        'new', 'contacted', 'no_answer', 'callback',
+        'qualified', 'sale', 'refund', 'invalid',
+    ]
+    event_at: AwareDatetime
+
+    @field_validator('event_at', mode='before')
+    @classmethod
+    def require_iso_string(cls, value):
+        if not isinstance(value, str):
+            raise ValueError('Informe uma data ISO 8601.')
+        return value
 
 
 @webhooks_blueprint.post('/callcenter')
@@ -46,46 +69,29 @@ def callcenter_webhook():
     if not request.is_json:
         return jsonify(error='Envie JSON.'), 415
 
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(error='Payload inválido.'), 400
-
-    lead_id = body.get('lead_id')
-    external_id = body.get('external_id')
-    status = body.get('status')
-    event_time = body.get('event_at')
-
-    if not isinstance(lead_id, str) or not lead_id.strip():
-        return jsonify(error='lead_id é obrigatório.'), 400
-
-    if not isinstance(external_id, str) or not (
-        0 < len(external_id.strip()) <= 120
-    ):
-        return jsonify(
-            error='external_id é obrigatório (até 120 caracteres).'
-        ), 400
-
-    external_id = external_id.strip()
-
-    if not isinstance(status, str) or status not in STATUSES:
-        return jsonify(error='Status desconhecido.'), 400
-
-    if not isinstance(event_time, str):
-        return jsonify(
-            error='event_at é obrigatório em ISO 8601.'
-        ), 400
-
     try:
-        event_at = datetime.fromisoformat(
-            event_time.replace('Z', '+00:00')
+        payload = CallcenterWebhookInput.model_validate(
+            request.get_json(silent=True)
         )
-        if event_at.tzinfo is None:
-            raise ValueError('timezone ausente')
-        event_at = event_at.astimezone(timezone.utc)
-    except ValueError:
+    except ValidationError as exc:
+        location = exc.errors()[0]['loc']
+        field = location[0] if location else None
+
+        messages = {
+            'lead_id': 'lead_id é obrigatório.',
+            'external_id': 'external_id é obrigatório (até 120 caracteres).',
+            'status': 'Status desconhecido.',
+            'event_at': 'event_at inválido: informe data e timezone.',
+        }
+
         return jsonify(
-            error='event_at inválido: informe data e timezone.'
+            error=messages.get(field, 'Payload inválido.')
         ), 400
+
+    lead_id = payload.lead_id
+    external_id = payload.external_id
+    status = payload.status
+    event_at = payload.event_at.astimezone(timezone.utc)
 
     with db_session() as db, db.begin():
         # Serializa webhooks concorrentes para o mesmo lead.
