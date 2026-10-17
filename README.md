@@ -1,174 +1,326 @@
 # Elevate Lead Dispatcher
 
-Projeto do teste técnico do Grupo Elevate. A ideia é simples: quando alguém preenche um formulário de vendas, o sistema recebe o contato (lead), identifica de onde ele veio, escolhe um call center para atendê-lo e acompanha o resultado.
+Teste Full Stack do Grupo Elevate. O sistema recebe leads, distribui o atendimento e acompanha os resultados por webhook. As seções seguem **os números dos requisitos do PDF**, agrupando apenas assuntos próximos. Veja também o [checklist](docs/checklist.md).
 
-Este README registra o que já funciona e as decisões tomadas até aqui. O restante do escopo está no [checklist do desafio](docs/checklist.md).
-
-## Como executar
-
-Com Docker instalado, na raiz do projeto (frontend, API e PostgreSQL):
+## Executar (24. Docker)
 
 ```bash
 docker compose up --build
 ```
 
-- Interface: http://localhost:5173
-- API: http://localhost:5000
-- PostgreSQL local: `localhost:5433` (usuário e banco: `elevate`; senha de desenvolvimento: `elevate-local-only`)
+Serviços disponíveis:
 
-Para parar, use `docker compose down`. O volume do PostgreSQL é preservado; `down -v` apagaria os dados.
+- Frontend: <http://localhost:5173>
+- API: <http://localhost:5000>
+- PostgreSQL: `localhost:5433` (`elevate` / `elevate-local-only`)
 
-### Contas para testar
+Pare com `docker compose down`, sem apagar o volume.
 
-O Docker Compose inicializa estes usuários, todos com a senha `demo123`:
+Contas demo (senha `demo123`): `admin@elevate.dev` (ADMIN), `ana@logicall.example` (Logicall), `bruno@salesbound.example` (Salesbound), `carla@atendemais.example` (AtendeMais). Não representam integrações reais.
 
-| Nome | E-mail | Acesso |
+## 5. Aplicação e arquitetura
+
+- [x] Tópico concluído.
+
+Stack e fluxo principal:
+
+- Stack: React/TypeScript → Flask/SQLAlchemy → PostgreSQL.
+- Fluxo: formulário → `POST /api/leads` → validação/contato → dispatcher → call center registrado no lead → `POST /api/webhooks/callcenter` → histórico/status → interface.
+- Organização do backend: `auth/`, `leads/` e `dispatcher/`.
+- A atribuição é persistida no banco.
+- Não há filas, Redis ou envio para call centers reais.
+
+## 6–7. Recebimento e validação
+
+- [x] Tópico concluído.
+
+`POST /api/leads` recebe:
+
+- Dados pessoais;
+- Produto e funil;
+- Origem, campanha e afiliado;
+- Parâmetros UTM.
+
+Validações e respostas:
+
+- Pydantic valida tipos, formatos e campos obrigatórios.
+- Produto e funil são verificados contra um catálogo definido no código.
+- O e-mail normalizado identifica o contato.
+- Cada lead recebe ID e horário próprios.
+- Dados inválidos retornam `400`.
+- Content-Type inadequado retorna `415`.
+
+## 8. Duplicidade e idempotência
+
+- [x] Tópico concluído.
+
+A identidade do cadastro vem do header **`Idempotency-Key` (UUID v4)**, criado pelo remetente.
+
+- Nova operação: usa uma chave nova.
+- Reenvio: reutiliza a chave original.
+- A chave é persistida em `leads.idempotency_key`.
+- `payload_hash` compara o conteúdo validado.
+- Duas operações distintas podem ter dados iguais, desde que usem chaves diferentes.
+
+| Caso | HTTP | Efeito |
 | --- | --- | --- |
-| Rafael | `admin@elevate.dev` | Administrador |
-| Ana | `ana@logicall.example` | Operadora da Logicall |
-| Bruno | `bruno@salesbound.example` | Operador da Salesbound |
-| Carla | `carla@atendemais.example` | Operadora da AtendeMais |
+| Chave inédita | `201` | Cria lead e distribuição |
+| Mesma chave e mesmo payload | `200` | Devolve mesmo ID (`duplicate: true`) |
+| Mesma chave, payload diferente | `409` | Rejeita conflito |
+| Mesmo payload, chave diferente | `201` | Nova operação legítima |
+| Chave ausente/inválida | `400` | Rejeita entrada |
 
-São contas e operações **de demonstração**, sem integração com empresas reais.
+A unicidade da chave é garantida no banco. Um `pg_advisory_xact_lock` derivado do UUID coordena tentativas simultâneas com a mesma chave até `COMMIT`/`ROLLBACK`.
 
-## Como o sistema deve funcionar
+## 9. Banco de dados
 
-O fluxo completo, quando implementado, será este:
+- [ ] Tópico parcialmente concluído: faltam migrations e a modelagem de algumas entidades previstas no teste.
 
-1. Uma página de vendas envia o cadastro para `POST /api/leads`.
-2. A API valida os dados, registra produto, funil e origem e evita cadastros duplicados indevidos.
-3. O dispatcher escolhe um call center e salva a distribuição. A configuração inicial é Logicall 50%, Salesbound 30% e AtendeMais 20%.
-4. O call center informa o andamento pelo webhook `POST /api/webhooks/callcenter`. O sistema guarda o histórico, inclusive quando chegam eventos repetidos ou fora de ordem.
-5. O administrador acompanha os números e os leads. Cada operador acessa apenas os leads do próprio call center.
+Principais tabelas:
 
-**O que já está funcionando:** autenticação de administrador e operadores com JWT, PostgreSQL e `POST /api/leads`, que valida os dados, persiste leads e trata o reenvio de payloads idênticos. O LAB já chama essa API e exibe o resultado de cada envio. Dashboard, lista de leads e configuração de pesos ainda usam dados de exemplo; o dispatcher e os webhooks ainda não estão conectados ao fluxo real.
+- `contacts`: representa a pessoa.
+- `leads`: mantém produto, funil, afiliado, origem, destino e status atual.
+- `call_centers`: guarda os pesos de distribuição.
+- `events`: armazena o histórico.
+- `users`: armazena os perfis.
 
-**O que ainda é demonstração:** os leads exibidos não vêm do banco; a tela de distribuição salva percentuais no navegador (`localStorage`), não altera os pesos do backend; o dispatcher ainda não distribui leads. O isolamento por call center na API de leads também não está implementado.
+**Estado atual e simplificação consciente:** `Product`, `Funnel`, `Affiliate` e `Distribution` ainda não existem como entidades/tabelas próprias. Produto, funil e afiliado são campos em `leads`, e a distribuição é representada diretamente por `leads.call_center_id`.
 
-## Idempotência
+**Pendente:** versionar o schema com migrations (o projeto ainda utiliza inicialização automática do schema).
 
-### Recebimento de leads
+## 10. Índices
 
-O endpoint `POST /api/leads` exige o header `Idempotency-Key`
-contendo um UUID v4.
+- [ ] Tópico pendente: existem apenas índices básicos derivados do ORM e constraints; falta estratégia baseada em consultas e medição.
 
-A chave identifica uma **operação lógica de cadastro**, não a pessoa.
-O cliente gera uma chave por novo cadastro e reutiliza a mesma chave
-se precisar reenviar aquela operação.
+Há apenas índices básicos declarados no modelo, além dos índices implícitos das PKs e constraints únicas:
 
-| Situação | Resposta |
-| --- | --- |
-| Chave nova e payload válido | HTTP 201, novo lead |
-| Mesma chave e mesmo payload | HTTP 200, `duplicate: true`, mesmo ID |
-| Mesma chave e payload diferente | HTTP 409 |
-| Mesmo payload e chave diferente | HTTP 201, novo lead |
-| Chave ausente ou inválida | HTTP 400 |
+- `contacts.email` (UNIQUE);
+- `leads.contact_id` (`index=True`);
+- `leads.call_center_id` (`index=True`);
+- `events.lead_id` (`index=True`);
+- `leads.idempotency_key` (UNIQUE);
+- `events (lead_id, external_id)` (UNIQUE).
 
-A chave fica em `leads.idempotency_key`, com restrição `UNIQUE`.
-O `payload_hash`, calculado a partir do payload validado e normalizado,
-é usado para verificar se uma chave está sendo reutilizada com
-conteúdo diferente. O hash **não é mais uma restrição de unicidade**:
-a mesma pessoa pode realizar dois cadastros legítimos.
+Isso **não representa uma estratégia de índices concluída**. Ainda falta:
 
-Para evitar corrida entre requisições simultâneas com a mesma chave,
-a API utiliza um `pg_advisory_xact_lock` derivado do UUID. A consulta
-de duplicidade e a gravação ocorrem na mesma transação. O lock é
-liberado no `COMMIT` ou `ROLLBACK`.
+- Levantar as consultas reais e seus padrões de filtragem/ordenação.
+- Medir os planos com `EXPLAIN ANALYZE`.
+- Avaliar índices compostos, como `(call_center_id, received_at)`, quando a filtragem e a paginação forem movidas para o backend.
+- Documentar a justificativa de cada índice e evitar adicionar índices sem medição.
 
-A distribuição também utiliza um advisory lock transacional próprio,
-protegendo a decisão global de alocação entre call centers.
+## 11. Escalabilidade do banco
 
-### Webhooks
+- [x] Tópico documentado; as evoluções descritas ainda não estão implementadas.
 
-Em `POST /api/webhooks/callcenter`, a identidade do acontecimento é
-a combinação `(lead_id, external_id)`.
+Estratégia por volume:
 
-| Situação | Resposta |
-| --- | --- |
-| Novo acontecimento | HTTP 201 |
-| Mesmo identificador, status e horário | HTTP 200, `duplicate: true` |
-| Mesmo identificador, dados diferentes | HTTP 409 |
+- Até 100 mil leads: PostgreSQL e índices direcionados.
+- A partir de 1 milhão: filtros e paginação no backend, além de análise dos planos de consulta.
+- Acima de 10 milhões: monitoramento do histórico e reavaliação dos gargalos.
 
-O PostgreSQL possui `UNIQUE(lead_id, external_id)` e cada webhook
-usa `SELECT ... FOR UPDATE` na linha do lead. Assim, dois eventos
-simultâneos do mesmo lead são processados serialmente.
+Possíveis evoluções:
 
-Eventos atrasados são guardados no histórico, mas somente eventos
-com `event_at` posterior ao último evento alteram o status atual.
-Eventos de leads diferentes podem ser processados em paralelo.
+- Substituir a contagem global do dispatcher por contadores transacionais por centro.
+- Avaliar filas e particionamento somente após medir a demanda.
 
-**Limitação:** os sistemas remetentes precisam preservar o mesmo
-identificador em tentativas de reenvio. No webhook, `external_id`
-é fornecido pelo call center; no recebimento de leads, a
-`Idempotency-Key` é fornecida por quem envia o cadastro.
+**Nada disso é apresentado como já implementado.**
 
-## Escolhas técnicas
+## 12. Lead Dispatcher
 
-- **uv:** organiza as dependências do backend em `pyproject.toml` e gera o `uv.lock`, que fixa as versões para reproduzir o ambiente. Assim, não precisamos manter um `requirements.txt` manualmente.
-- **Flask e SQLAlchemy:** uma API pequena com modelos relacionais, sem camadas extras antes de elas serem necessárias.
-- **Pydantic:** substituí a validação manual por contratos declarativos, centralizando campos obrigatórios, tipos, formatos e normalização. Regras que dependem do estado da aplicação, como produto e funil existentes, continuam separadas da validação do payload.
-- **PostgreSQL:** permite coordenar atualizações simultâneas com transações e locks por linha, algo importante para o dispatcher. Continua simples de executar pelo Compose.
-- **React, TypeScript e Vite:** interface separada da API, com um proxy de desenvolvimento para as chamadas `/api`.
-- **Docker Compose:** frontend e backend sobem com um comando, sem exigir configuração manual de serviços adicionais.
-- **JWT com Flask-JWT-Extended:** escolhi uma biblioteca conhecida em vez de escrever assinatura e validação de tokens por conta própria. Não implementei refresh token nesta etapa.
+- [x] Tópico concluído.
 
-O backend está organizado em módulos pequenos, como `auth/` e `dispatcher/`. Não adicionei Redis, filas ou workers só por precaução: primeiro quero medir a necessidade ao resolver a distribuição concorrente.
+Pesos atuais:
 
-## Segurança
+- Logicall: **50%**;
+- Salesbound: **30%**;
+- AtendeMais: **20%**.
 
-A autenticação usa JWT em cookie `HttpOnly`, proteção CSRF para operações que alteram dados e revogação de tokens no logout, registrada no PostgreSQL. As senhas são armazenadas com hash. O access token expira em 15 minutos por padrão, sem renovação automática.
+Em cada cadastro, o algoritmo:
 
-O Compose usa uma chave JWT **apenas para desenvolvimento**. Fora do ambiente local, é necessário configurar uma `JWT_SECRET_KEY` forte; em HTTPS, ativar `JWT_COOKIE_SECURE=1`. Os usuários e a senha `demo123` não devem ser disponibilizados num ambiente real.
+1. Compara a quantidade atual de leads com a quantidade esperada após a próxima atribuição.
+2. Escolhe o maior **déficit ponderado**.
+3. Grava o `call_center_id` escolhido.
 
-Ainda falta verificar as permissões nas futuras rotas de leads e dispatcher, autenticar os webhooks e revisar riscos como tentativas repetidas de login e exposição de dados. Esconder uma tela no React não substitui autorização no backend.
+Essa abordagem mantém a proporção mais estável em amostras pequenas do que sorteios independentes. A edição dos pesos na interface ainda é demonstrativa.
 
-## Testes
+## 13. Concorrência
 
-Em vez de testar cada função isoladamente, comecei pelos comportamentos observáveis da API. Os cinco testes de integração atuais exercitam login, `/auth/me`, CSRF, logout, revogação de JWT, expiração, credenciais inválidas e usuários inativos, usando um banco PostgreSQL separado, criado e apagado automaticamente pelos testes.
+- [x] Tópico concluído.
 
-Para executar:
+O dispatcher:
+
+- Usa `pg_advisory_xact_lock(41625, 20261017)` antes de consultar as contagens.
+- Mantém o lock até o `COMMIT` da atribuição.
+- Impede que duas requisições decidam com base no mesmo estado desatualizado.
+
+**Não é lock do banco inteiro**: apenas as transações que usam essa chave são coordenadas. Os testes verificaram 100 cadastros concorrentes, proporção 50/30/20 e requisições efetivamente esperando o lock no PostgreSQL.
+
+## 14. Webhook do call center
+
+- [x] Tópico concluído.
+
+`POST /api/webhooks/callcenter` aceita:
+
+- `lead_id`;
+- `external_id`;
+- `status`;
+- `event_at` com timezone (`timestamp` no exemplo do PDF; escolhi `event_at` para indicar o horário do acontecimento).
+
+Status aceitos: `new`, `contacted`, `no_answer`, `callback`, `qualified`, `sale`, `refund`, `invalid`.
+
+O evento é registrado no histórico e pode atualizar o status atual.
+
+## 15. Webhook duplicado
+
+- [x] Tópico concluído.
+
+Um acontecimento é identificado por **`(lead_id, external_id)`**:
+
+- Novo evento → `201`.
+- Mesmo ID, status e horário → `200` (`duplicate: true`).
+- Mesmo ID com dados conflitantes → `409`.
+
+O banco também impõe `UNIQUE(lead_id, external_id)`. O `SELECT ... FOR UPDATE` na linha do lead serializa webhooks do mesmo lead, sem bloquear o processamento de outros leads.
+
+## 16. Eventos fora de ordem
+
+- [x] Tópico concluído.
+
+Eventos inéditos atrasados entram no histórico, mas **só alteram `leads.status` se `event_at` superar o último horário registrado**.
+
+Por exemplo, um `contacted` das 14h não desfaz uma `sale` das 14h30 recebida primeiro. Não impus um stepper rígido entre status.
+
+## 17. Segurança do webhook
+
+- [x] Tópico concluído dentro da estratégia atual; rate limiting ainda não existe.
+
+Controles da integração:
+
+- Usa `X-Webhook-Key`, configurada em `CALLCENTER_WEBHOOK_KEY`.
+- Compara a chave com `hmac.compare_digest`.
+- Administradores autenticados também podem simular eventos.
+- Sem credencial válida, o endpoint rejeita a chamada.
+- A chave não deve ficar no frontend.
+
+## 18–19. Dashboard, lista e filtros
+
+- [ ] Tópico parcialmente concluído: dashboard e pesos são demonstrativos, e filtros/paginação ainda são locais.
+
+A lista consulta leads reais por `GET /api/leads`:
+
+- ADMIN vê todos os leads.
+- OPERATOR vê apenas os leads do próprio call center, **com restrição no backend**.
+- A tela oferece filtros por período, produto, funil, origem, centro e status, mas aplica todos localmente depois de carregar a lista completa.
+- A paginação também é local, com cinco itens por página.
+
+**Pendências:** não há endpoint de métricas para o dashboard; a edição de pesos usa somente `localStorage`; não há filtros ou paginação server-side; e não há endpoints para abrir detalhes ou atualizar o status de leads pelo operador.
+
+## 20–22. Autenticação, autorização e segurança
+
+- [ ] Tópico parcialmente concluído: autenticação e autorização básica existem, mas faltam rate limiting e proteção completa contra brute force.
+
+Controles implementados:
+
+- JWT em cookie `HttpOnly`.
+- CSRF em operações autenticadas por cookie.
+- Logout com revogação no PostgreSQL.
+- Senhas armazenadas com hash.
+- Access token com duração de 15 minutos.
+- Perfil conferido pelo backend nas rotas, sem depender apenas das telas ocultas.
+
+Para produção, ainda seriam necessários HTTPS, `JWT_COOKIE_SECURE=1`, segredo forte e medidas contra tentativas repetidas. **Rate limiting e proteção completa contra brute force não estão implementados.**
+
+## 23. Testes e LAB
+
+- [ ] Tópico parcialmente concluído: há testes de núcleo e concorrência, mas ainda faltam coberturas de APIs e fluxos que não foram implementados.
+
+O LAB:
+
+- Gera até 100 leads com Faker.
+- Envia cenários válidos, inválidos, duplicados ou mistos.
+- Exibe o HTTP e o resultado esperado.
+
+Os testes existentes cobrem:
+
+- Autenticação;
+- Validação;
+- Persistência;
+- Concorrência do dispatcher;
+- Webhook duplicado;
+- Webhook fora de ordem;
+- `external_id` conflitante.
+
+As suítes de integração também verificam concorrência real no PostgreSQL, incluindo espera por advisory lock do dispatcher e `FOR UPDATE` nos webhooks. Os registros temporários são limpos.
+
+Ainda faltam testes específicos para as APIs de dashboard, configuração do dispatcher, filtros/paginação server-side e atualização de status pelo operador, porque essas APIs ainda não existem.
 
 ```bash
-docker compose run --build --rm -T \
-  -e PYTHONDONTWRITEBYTECODE=1 \
-  backend python -m unittest discover -s tests -p 'test_*.py' -v
+docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Com o recebimento de leads implementado, vou complementar a validação visual com testes de integração de campos inválidos, idempotência e casos de borda. Distribuição concorrente e webhooks duplicados ou fora de ordem terão testes próprios quando essas funcionalidades forem construídas.
+As verificações de persistência usadas nos testes consultam diretamente o PostgreSQL. **Após mudar o contrato de idempotência, é preciso executar novamente a suíte.**
 
-### LAB de testes
+## 27–28. Priorização, limitações e stack
 
-Criei o LAB antes do endpoint para ter uma forma visual de experimentar a entrada de dados. Com Faker, ele gera de 1 a 100 leads, deixando produto, funil, origem, campanha e afiliado aleatórios. Posso escolher cenários válidos, campos inválidos, duplicados ou uma mistura deles.
+- [ ] Tópico parcialmente concluído: a priorização está documentada, mas há pendências funcionais e de infraestrutura listadas abaixo.
 
-O LAB agora envia cada lead individualmente para `POST /api/leads` e mostra o status HTTP, o tempo de resposta e o resultado por linha. **Verde significa comportamento esperado**, não necessariamente HTTP 2xx: um campo inválido corretamente rejeitado também deve passar no teste.
+Prioridades da implementação:
 
-## Volume de dados e concorrência
+- Recebimento;
+- Banco de dados;
+- Dispatcher concorrente;
+- Webhooks.
 
-O PDF propõe começar com 100 mil leads e pensar em 1 milhão e mais de 10 milhões. Não precisamos construir essa infraestrutura agora, mas precisamos justificar como o sistema poderia evoluir.
+Stack escolhida por familiaridade e baixo custo operacional: Flask, SQLAlchemy, PostgreSQL, Pydantic, React, TypeScript, Vite, Docker Compose e uv.
 
-Minha abordagem inicial é manter o banco relacional, paginar consultas na API e definir índices a partir dos filtros realmente usados (como data, status e call center). Quando os modelos e consultas estiverem prontos, vou registrar quais índices foram escolhidos e por quê.
+Pendências confirmadas na codebase:
 
-Para 100 leads chegando quase ao mesmo tempo, a distribuição terá de ser persistida de modo consistente, com transações ou operações atômicas comprovadas por teste. O PostgreSQL dá as ferramentas para coordenar transações concorrentes, mas a distribuição ainda precisará ser implementada de forma atômica e validada sob carga. Redis, filas e particionamento só entram se houver necessidade demonstrada. **Isso é um plano, não uma capacidade já implementada.**
+- Migrations;
+- Modelagem de produto, funil, afiliado e distribuição como entidades, se o escopo exigir esses relacionamentos;
+- Estratégia e medição de índices;
+- Paginação server-side;
+- Filtros server-side;
+- Endpoint de métricas do dashboard;
+- API persistente para configuração dos pesos;
+- Detalhe e atualização de leads para operadores;
+- Métricas reais;
+- Persistência das configurações de pesos pela interface;
+- Testes adicionais de autorização;
+- Rate limiting e proteção contra brute force;
+- Observabilidade.
 
-## Limitações e próximos passos
+Evitei infraestrutura extra sem necessidade comprovada.
 
-A próxima etapa é conferir no LAB os cenários inválidos, mistos e duplicados. Depois, vou criar a primeira migration com Alembic para versionar o schema já validado e retirar o `create_all()` automático. Na sequência, implementarei o dispatcher com concorrência, os webhooks e a integração das demais telas com a API real, incluindo filtros, paginação e autorização por perfil e call center.
+## Como usei IA (item 3)
 
-Para uma segunda versão, avaliaria melhorias de operação e escala a partir dos resultados: renovação de sessão, observabilidade, processamento assíncrono e ajustes de banco, se fizerem sentido. Prefiro registrar uma limitação a apresentar uma funcionalidade incompleta como se estivesse pronta.
+- [x] Tópico concluído.
 
-## Como usei IA
+Usei ChatGPT para discutir alternativas, revisar código e construir testes. Exemplos em que **revisei ou corrigi a saída**:
 
-Usei o ChatGPT para discutir alternativas, revisar código e montar mudanças pontuais. As escolhas e validações ficaram comigo. Alguns exemplos concretos:
+- Migrei de SQLite para PostgreSQL para coordenar operações concorrentes.
+- Comparei sessões Flask e JWT, escolhendo Flask-JWT-Extended em vez de implementar autenticação própria.
+- Reduzi abstrações e separei autenticação de autorização.
+- Corrigi um teste de expiração que criava o token já expirado, em vez de deixá-lo expirar após login válido.
+- Encontrei no LAB uma regressão da validação Pydantic: produtos/funis inexistentes eram aceitos. Corrigi e acrescentei regressão.
+- Verifiquei resultados no PostgreSQL, além dos testes e do build Docker.
 
-- Migrei do SQLite para PostgreSQL antes de criar o dispatcher, para trabalhar com transações e locks por linha na etapa de concorrência. O antigo arquivo SQLite não foi apagado.
-- Comecei com sessões do Flask. Depois comparei essa opção com JWT e optei por Flask-JWT-Extended, mantendo cookies e revogação no banco, sem Redis ou refresh token.
-- Pedi uma revisão para cortar redundâncias e evitar abstrações sem benefício. Também mantive a separação entre autenticação (quem é o usuário) e autorização (o que ele pode acessar).
-- Um teste de expiração criado com auxílio da IA falhou porque gerava um token já expirado durante o login. Corrigi o cenário para expirar **depois** de um login bem-sucedido.
-- A validação encontrou problemas locais de permissões em `__pycache__` e dependências do frontend. Usei testes e build no Docker para validar sem acrescentar mecanismos ao produto.
+A IA acelerou o trabalho, mas não foi tratada como validação. Os artefatos de instruções/planos devem acompanhar o histórico Git (item 25).
 
-Os resultados atuais foram conferidos com testes de integração, lint e build. Vou continuar registrando decisões, erros e sugestões rejeitadas conforme as próximas funcionalidades forem implementadas. Os artefatos de instruções e planos utilizados no desenvolvimento também precisam ser preservados no repositório antes da entrega.
+## Estado real da implementação
 
-Usei IA para acelerar a implementação e a criação dos testes, mas não considerei os resultados suficientes por si só. Depois de validar os cenários no LAB, fiz uma segunda verificação diretamente no PostgreSQL, cruzando os IDs e os dados recebidos com os registros persistidos. Também confirmei que os leads rejeitados não haviam sido gravados. O objetivo foi verificar o comportamento real do sistema, em vez de confiar apenas nos resultados apresentados pela interface.
+Esta tabela foi conferida contra a codebase atual. “Demonstrativo” significa que a tela existe, mas ainda usa dados locais ou simulados; não significa que exista uma API equivalente no backend.
 
-
-Durante a migração para Pydantic, o LAB revelou uma regressão que os testes iniciais não detectaram: produtos e funis inexistentes estavam sendo aceitos. Corrigi as regras, adicionei testes de regressão e validei novamente o fluxo completo.
+| Área | Situação atual |
+| --- | --- |
+| Recebimento de leads | Funcional no backend, com validação Pydantic, persistência, contato normalizado e respostas HTTP básicas. |
+| Idempotência | Funcional no backend, com `Idempotency-Key`, hash do payload, constraint única e lock por chave. |
+| Dispatcher | Funcional no recebimento, com pesos semeados no banco, seleção por déficit ponderado e lock transacional. |
+| Webhook | Funcional no backend, com validação, histórico, deduplicação, eventos fora de ordem e proteção por chave/admin. |
+| Autenticação | Funcional para login, `/me`, logout, cookies JWT, CSRF e revogação de tokens. |
+| Dashboard | Demonstrativo: métricas fixas retornadas por `dashboard.service.ts`; não há endpoint de métricas. |
+| Configuração do dispatcher | Demonstrativa: leitura e gravação em `localStorage`; não altera os pesos do banco. |
+| Lista de leads | Consulta dados reais, mas filtros e paginação são feitos no React após carregar toda a lista. |
+| Atendimento do operador | Ainda não há endpoint/tela para abrir detalhes ou atualizar o status de um lead. |
+| Schema e migrations | O schema é criado com `Base.metadata.create_all`; migrations ainda não existem. |
+| Índices | Há índices básicos derivados de `index=True`, PKs, FKs e constraints únicas; ainda não há estratégia medida com planos de consulta. |
+| Rate limiting e brute force | Não implementados. |
