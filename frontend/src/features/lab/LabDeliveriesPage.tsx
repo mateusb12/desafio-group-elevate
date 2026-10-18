@@ -18,51 +18,51 @@ const experiments: Experiment[] = [
   {
     id: 'outbox', title: 'Persistência da Outbox', status: 'Disponível',
     objective: 'Mostrar que a intenção de entrega nasce na mesma transação do lead.',
-    problem: 'Como preservar a intenção de entregar antes da publicação no broker?',
-    prerequisites: ['Gere leads no LAB Leads.', 'Atualize os dados observados nesta tela.'],
-    steps: ['Gerar leads usando o LAB Leads.', 'Localizar o evento correspondente.', 'Conferir distribuição, destino e estado pendente.'],
-    expected: 'Cada lead tem distribuição e evento lead.distributed com os mesmos identificadores.',
+    problem: 'Como garantir que a mensagem não seja perdida antes de ser enviada?',
+    prerequisites: ['Gere leads no LAB Leads antes de iniciar o roteiro.', 'Atualize os dados observados nesta tela.'],
+    steps: ['Localizar o evento correspondente ao lead.', 'Conferir distribuição, destino e estado pendente.', 'Verificar se o lead, a distribuição e o evento possuem os mesmos identificadores.'],
+    expected: 'Para cada lead, há uma linha de distribuição e uma linha do evento lead.distributed com os mesmos IDs.',
     explanation: 'A Outbox registra a intenção no PostgreSQL; o publisher a encaminha ao RabbitMQ separadamente.',
   },
   {
     id: 'rabbitmq', title: 'RabbitMQ indisponível', status: 'Disponível',
     objective: 'Apresentar a separação entre a transação do banco e a publicação no broker.',
-    problem: 'O que acontece quando o banco confirma, mas o broker não responde?',
-    prerequisites: ['Tenha o terminal aberto na pasta do projeto.', 'Use o LAB Leads para gerar novos leads.'],
+    problem: 'O que acontece quando o banco salva o lead, mas a mensagem não pode ser enviada?',
+    prerequisites: ['Use o LAB Leads para gerar novos leads.'],
     steps: ['Execute `docker compose stop rabbitmq`.', 'Gere leads e observe os pendentes aumentando.', 'Execute `docker compose start rabbitmq` e atualize os dados.'],
-    expected: 'Leads continuam aceitos e eventos permanecem pendentes até a publicação.',
-    explanation: 'A API confirma o lead no PostgreSQL mesmo sem o broker; o publisher retenta e publica após a recuperação.',
+    expected: 'O lead é salvo mesmo quando a mensagem não pode ser enviada. Ela fica pendente e é enviada depois.',
+    explanation: 'A API salva o lead no PostgreSQL. O publisher faz retry até conseguir enviar a mensagem.',
   },
   {
-    id: 'call-center', title: 'Call center indisponível', status: 'Em preparação',
+    id: 'call-center', title: 'Call center indisponível', status: 'Disponível',
     objective: 'Demonstrar falhas parciais em integrações HTTP externas.',
     problem: 'Como uma falha na Logicall deve afetar Salesbound e AtendeMais?',
-    prerequisites: ['Os simuladores têm health check real.', 'Delivery worker e retries ainda não estão conectados.'],
-    steps: ['Parar a Logicall manualmente.', 'Gerar leads e observar as falhas.', 'Recuperar a Logicall e observar novas tentativas.'],
+    prerequisites: ['O serviço delivery-worker está em execução.'],
+    steps: ['Execute `docker compose stop logicall`.', 'Gere leads e observe Salesbound/AtendeMais entregues e Logicall em retry.', 'Execute `docker compose start logicall` e atualize os dados.'],
     expected: 'A falha de um destino não interrompe os demais e tentativas posteriores recuperam a entrega.',
-    explanation: 'Hoje só o health check é observável; não há entrega ou retry para executar o roteiro.',
+    explanation: 'Cada mensagem é processada em uma tarefa independente; o retry de Logicall não bloqueia os demais destinos.',
   },
   {
-    id: 'duplicates', title: 'Entrega duplicada', status: 'Em preparação',
+    id: 'duplicates', title: 'Entrega duplicada', status: 'Disponível',
     objective: 'Explicar por que Outbox não significa exatamente uma entrega.',
-    problem: 'Como evitar processamento duplicado depois de uma publicação ambígua?',
-    prerequisites: ['O publisher usa o mesmo event_id em novas tentativas.', 'O worker idempotente ainda não existe.'],
-    steps: ['Publicar um evento.', 'Simular falha após publicar.', 'Entregar novamente e verificar idempotência.'],
+    problem: 'Como evitar que a mesma mensagem seja processada mais de uma vez?',
+    prerequisites: ['Consulte os logs do delivery-worker.'],
+    steps: ['Gere um lead e anote o event_id.', 'Republique a mesma mensagem pelo RabbitMQ Management ou reinicie o worker durante a entrega.', 'Verifique `duplicate=true` no simulador e um único efeito persistido.'],
     expected: 'O consumidor reconhece a duplicata e não repete o efeito.',
-    explanation: 'O padrão garante persistência da intenção, não a confirmação atômica entre sistemas.',
+    explanation: 'O fluxo é at-least-once; a tabela local e a chave event_id do simulador tornam a repetição segura.',
   },
   {
     id: 'concurrency', title: 'Concorrência', status: 'Disponível',
     objective: 'Observar distribuição e Outbox quando muitos leads chegam juntos.',
-    problem: 'O que permanece consistente quando 100 leads são criados simultaneamente?',
-    prerequisites: ['Use o gerador de 100 leads do LAB Leads.', 'Atualize os dados após o envio.'],
-    steps: ['Abra o LAB Leads.', 'Gere 100 leads válidos.', 'Compare a quantidade e os identificadores na Outbox.'],
-    expected: 'Os eventos persistidos correspondem às distribuições criadas para os leads.',
-    explanation: 'A evidência vem das linhas reais consultadas no backend, não de um contador fixo na interface.',
+    problem: 'O sistema consegue criar 100 leads ao mesmo tempo sem perder dados?',
+    prerequisites: ['Nenhum.'],
+    steps: ['Abra o LAB Leads.', 'Gere 100 leads válidos.', 'Atualize os dados.', 'Compare a quantidade e os IDs na Outbox.'],
+    expected: 'Para cada lead criado, há uma linha em distributions e uma linha em outbox_pending_deliveries para o evento lead.distributed.',
+    explanation: 'A Outbox mostra os registros salvos no banco e seus IDs.',
   },
 ]
 
-const stateLabel: Record<string, string> = { available: 'Disponível', unavailable: 'Indisponível', 'not-implemented': 'Não implementado', 'not-monitored': 'Implementado, não monitorado', unknown: 'Não verificado' }
+const stateLabel: Record<string, string> = { available: 'Disponível', unavailable: 'Indisponível', 'not-implemented': 'Não implementado', 'not-monitored': 'Implementado, não monitorado', unknown: 'Não verificado', pending: 'Pendente', retry_scheduled: 'Retry agendado', published: 'Publicado', delivered: 'Entregue', failed: 'Falha final' }
 
 const stateTone: Record<string, string> = {
   available: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
@@ -70,6 +70,10 @@ const stateTone: Record<string, string> = {
   'not-implemented': 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
   'not-monitored': 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
   unknown: 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400',
+  retry_scheduled: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  published: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
+  delivered: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  failed: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
 }
 
 const panelClass = 'rounded-xl border border-slate-200/80 bg-white p-5 dark:border-white/[.08] dark:bg-[#101827]'
@@ -102,7 +106,7 @@ const flowIcons: Record<string, string> = {
 export function LabDeliveriesPage() {
   const [selectedId, setSelectedId] = useState('outbox')
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
-  const [counters, setCounters] = useState({ total: 0, pending: 0, published: 0 })
+  const [counters, setCounters] = useState({ total: 0, pending: 0, published: 0, deliveryTotal: 0, initialPending: 0, delivered: 0, retrying: 0, failed: 0 })
   const [health, setHealth] = useState<ServiceHealth[]>([])
   const [rabbitMqState, setRabbitMqState] = useState<'available' | 'unavailable' | 'unknown'>('unknown')
   const [loading, setLoading] = useState(true)
@@ -140,7 +144,7 @@ export function LabDeliveriesPage() {
     { label: 'PostgreSQL / Outbox', state: error ? 'unknown' : loading ? 'unknown' : 'available' },
     { label: 'Outbox Service', state: 'not-monitored' },
     { label: 'RabbitMQ', state: rabbitMqState },
-    { label: 'Worker', state: 'not-implemented' },
+    { label: 'Worker', state: 'not-monitored' },
     { label: 'Call center HTTP', state: health.length ? (health.some((item) => item.state === 'available') ? 'available' : 'unavailable') : 'unknown' },
   ], [counters.total, deliveries.length, error, health, loading, rabbitMqState])
 
@@ -209,10 +213,10 @@ export function LabDeliveriesPage() {
 
       <section className={`${panelClass} mt-5`}>
         <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-[17px] font-semibold">Resultado observado</h2><p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Dados reais retornados pelo backend.</p></div>{loading && <span className="text-xs text-slate-500">Consultando...</span>}</div>
-        {error ? <p role="alert" className="mt-4 text-[13px] text-rose-600 dark:text-rose-300">{error}</p> : <div className="mt-4 grid grid-cols-3 gap-2.5"><div className="rounded-lg border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 dark:border-white/[.06] dark:bg-white/[.025]"><p className="text-xl font-semibold leading-none">{counters.total}</p><p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Eventos</p></div><div className="rounded-lg border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 dark:border-white/[.06] dark:bg-white/[.025]"><p className="text-xl font-semibold leading-none text-amber-700 dark:text-amber-300">{counters.pending}</p><p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Pendentes</p></div><div className="rounded-lg border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 dark:border-white/[.06] dark:bg-white/[.025]"><p className="text-xl font-semibold leading-none text-emerald-700 dark:text-emerald-300">{counters.published}</p><p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Publicados</p></div></div>}
+        {error ? <p role="alert" className="mt-4 text-[13px] text-rose-600 dark:text-rose-300">{error}</p> : <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4"><div className="rounded-lg border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 dark:border-white/[.06] dark:bg-white/[.025]"><p className="text-xl font-semibold leading-none">{counters.total}</p><p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Persistidos na Outbox</p></div><div className="rounded-lg border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 dark:border-white/[.06] dark:bg-white/[.025]"><p className="text-xl font-semibold leading-none text-emerald-700 dark:text-emerald-300">{counters.published}</p><p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Publicados no RabbitMQ</p></div><div className="rounded-lg border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 dark:border-white/[.06] dark:bg-white/[.025]"><p className="text-xl font-semibold leading-none text-emerald-700 dark:text-emerald-300">{counters.delivered}</p><p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Entregues por HTTP</p></div><div className="rounded-lg border border-slate-200/70 bg-slate-50/70 px-3.5 py-3 dark:border-white/[.06] dark:bg-white/[.025]"><p className="text-xl font-semibold leading-none text-amber-700 dark:text-amber-300">{counters.retrying + counters.failed}</p><p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Retry / falha final</p></div></div>}
       </section>
 
-      <section className={`${panelClass} mt-5`}><div className="flex items-baseline justify-between gap-3"><div><h2 className="text-[17px] font-semibold">Últimos eventos da Outbox</h2><p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">IDs abreviados; passe o cursor ou copie para ver o valor completo.</p></div><span className="text-xs text-slate-500 dark:text-slate-400">{deliveries.length} exibidos</span></div>{error ? <p className="mt-4 text-[13px] text-rose-600 dark:text-rose-300">A lista não pôde ser consultada.</p> : deliveries.length === 0 && !loading ? <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">Nenhum evento encontrado. Gere leads no LAB Leads.</p> : <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-[13px]"><thead className="border-b border-slate-200/70 text-xs text-slate-500 dark:border-white/[.07] dark:text-slate-400"><tr><th className="px-2 pb-3 pr-4 font-medium">Evento</th><th className="px-2 pb-3 pr-4 font-medium">Lead</th><th className="px-2 pb-3 pr-4 font-medium">Distribuição</th><th className="px-2 pb-3 pr-4 font-medium">Destino</th><th className="px-2 pb-3 pr-4 font-medium">Criado em</th><th className="px-2 pb-3 font-medium">Estado</th></tr></thead><tbody>{deliveries.map((delivery) => <tr key={delivery.eventId} className="border-b border-slate-200/60 last:border-0 hover:bg-slate-50/70 dark:border-white/[.045] dark:hover:bg-white/[.025]"><td className="px-2 py-3 pr-4 font-medium">{delivery.eventType}</td><td className="px-2 py-3 pr-4 font-mono"><button type="button" title={delivery.leadId ?? undefined} onClick={() => delivery.leadId && void copyIdentifier(delivery.leadId)} className="rounded px-1 py-0.5 text-slate-400 transition hover:bg-indigo-500/10 hover:text-indigo-300">{copiedId === delivery.leadId ? 'copiado' : shortId(delivery.leadId)}</button></td><td className="px-2 py-3 pr-4 font-mono"><button type="button" title={delivery.distributionId} onClick={() => void copyIdentifier(delivery.distributionId)} className="rounded px-1 py-0.5 text-slate-400 transition hover:bg-indigo-500/10 hover:text-indigo-300">{copiedId === delivery.distributionId ? 'copiado' : shortId(delivery.distributionId)}</button></td><td className="px-2 py-3 pr-4 font-medium">{delivery.callCenter}</td><td className="whitespace-nowrap px-2 py-3 pr-4 text-slate-500">{formatDate(delivery.createdAt)}</td><td className="px-2 py-3"><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${delivery.state === 'pending' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'}`}>{delivery.state === 'pending' ? 'Pendente' : 'Publicado'}</span></td></tr>)}</tbody></table></div>}</section>
+<section className={`${panelClass} mt-5`}><div className="flex items-baseline justify-between gap-3"><div><h2 className="text-[17px] font-semibold">Últimos eventos da Outbox</h2><p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">IDs abreviados; estado separa publicação de entrega HTTP.</p></div><span className="text-xs text-slate-500 dark:text-slate-400">{deliveries.length} exibidos</span></div>{error ? <p className="mt-4 text-[13px] text-rose-600 dark:text-rose-300">A lista não pôde ser consultada.</p> : deliveries.length === 0 && !loading ? <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">Nenhum evento encontrado. Gere leads no LAB Leads.</p> : <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-[13px]"><thead className="border-b border-slate-200/70 text-xs text-slate-500 dark:border-white/[.07] dark:text-slate-400"><tr><th className="px-2 pb-3 pr-4 font-medium">Evento</th><th className="px-2 pb-3 pr-4 font-medium">Lead</th><th className="px-2 pb-3 pr-4 font-medium">Distribuição</th><th className="px-2 pb-3 pr-4 font-medium">Destino</th><th className="px-2 pb-3 pr-4 font-medium">Criado em</th><th className="px-2 pb-3 font-medium">Estado</th></tr></thead><tbody>{deliveries.map((delivery) => <tr key={delivery.eventId} className="border-b border-slate-200/60 last:border-0 hover:bg-slate-50/70 dark:border-white/[.045] dark:hover:bg-white/[.025]"><td className="px-2 py-3 pr-4 font-medium">{delivery.eventType}</td><td className="px-2 py-3 pr-4 font-mono"><button type="button" title={delivery.leadId ?? undefined} onClick={() => delivery.leadId && void copyIdentifier(delivery.leadId)} className="rounded px-1 py-0.5 text-slate-400 transition hover:bg-indigo-500/10 hover:text-indigo-300">{copiedId === delivery.leadId ? 'copiado' : shortId(delivery.leadId)}</button></td><td className="px-2 py-3 pr-4 font-mono"><button type="button" title={delivery.distributionId} onClick={() => void copyIdentifier(delivery.distributionId)} className="rounded px-1 py-0.5 text-slate-400 transition hover:bg-indigo-500/10 hover:text-indigo-300">{copiedId === delivery.distributionId ? 'copiado' : shortId(delivery.distributionId)}</button></td><td className="px-2 py-3 pr-4 font-medium">{delivery.callCenter}</td><td className="whitespace-nowrap px-2 py-3 pr-4 text-slate-500">{formatDate(delivery.createdAt)}</td><td className="px-2 py-3"><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${stateTone[delivery.state]}`}>{delivery.state === 'pending' ? 'Aguardando retry' : delivery.state === 'retry_scheduled' ? 'Retry agendado' : delivery.state === 'failed' ? 'Falha final' : delivery.state === 'delivered' ? 'Entregue por HTTP' : 'Publicado'}</span></td></tr>)}</tbody></table></div>}</section>
 
       <section className={`${panelClass} mt-5`}><div><h2 className="text-[17px] font-semibold">Saúde dos simuladores HTTP</h2><p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Consulta real feita pelo backend, com timeout curto.</p></div>{healthError ? <p role="alert" className="mt-4 text-[13px] text-rose-300">{healthError}</p> : health.length === 0 && !loading ? <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">Estado não verificado.</p> : <div className="mt-4 grid gap-3 sm:grid-cols-3">{health.map((service) => <div key={service.id} className="rounded-lg border border-slate-200/70 bg-slate-50/60 px-3.5 py-3 dark:border-white/[.07] dark:bg-white/[.025]"><div className="flex items-center justify-between gap-3"><span className="text-[13px] font-semibold">{service.name}</span><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${stateTone[service.state]}`}>{stateLabel[service.state]}</span></div><p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{service.httpStatus ? `HTTP ${service.httpStatus}` : service.error ?? 'Sem resposta'}</p></div>)}</div>}</section>
     </section>
