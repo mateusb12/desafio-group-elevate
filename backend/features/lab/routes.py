@@ -10,6 +10,7 @@ from features.auth.permissions import admin_required
 from features.dispatcher.models import CallCenter
 from features.leads.models import Distribution
 from features.outbox.models import OutboxPendingDelivery
+from features.outbox.publisher import check_rabbitmq
 from shared.database import db_session
 
 from . import lab_blueprint
@@ -121,3 +122,10 @@ def health():
     with ThreadPoolExecutor(max_workers=len(CALL_CENTER_HEALTH)) as executor:
         checks = list(executor.map(lambda item: _check_health(*item), CALL_CENTER_HEALTH))
     return jsonify(services=checks)
+
+
+@lab_blueprint.get("/rabbitmq")
+@jwt_required()
+@admin_required(forbidden_message="Acesso restrito ao administrador.")
+def rabbitmq_health():
+    return jsonify(check_rabbitmq())

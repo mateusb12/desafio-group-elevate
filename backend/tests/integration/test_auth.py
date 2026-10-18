@@ -212,6 +212,23 @@ class AuthIntegrationTests(unittest.TestCase):
         self.assertEqual(body['deliveries'][0]['state'], 'pending')
         self.assertIsNone(body['deliveries'][0]['publishedAt'])
 
+    def test_lab_rabbitmq_health_is_admin_only_and_reports_unavailable(self):
+        self.assertEqual(self.client.get('/api/lab/rabbitmq').status_code, 401)
+
+        self.assertEqual(self.login().status_code, 200)
+        self.assertEqual(self.client.get('/api/lab/rabbitmq').status_code, 403)
+
+        self.client = self.app.test_client()
+        self.assertEqual(self.login(email='admin@elevate.dev').status_code, 200)
+        with patch(
+            'features.lab.routes.check_rabbitmq',
+            return_value={'state': 'unavailable', 'error': 'AMQPConnectionError'},
+        ):
+            response = self.client.get('/api/lab/rabbitmq')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['state'], 'unavailable')
+
     def test_lab_health_is_partial_when_one_simulator_is_unavailable(self):
         self.assertEqual(self.login(email='admin@elevate.dev').status_code, 200)
 

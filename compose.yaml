@@ -15,6 +15,22 @@ services:
       timeout: 3s
       retries: 15
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_DEFAULT_USER:-elevate}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_DEFAULT_PASS:-elevate-local-only}"
+    ports:
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   migrations:
     build: ./backend
     environment:
@@ -49,6 +65,28 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+
+  outbox-service:
+    build: ./backend
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DATABASE_URL: "postgresql+psycopg://elevate:elevate-local-only@db:5432/elevate"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: "${RABBITMQ_DEFAULT_USER:-elevate}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_DEFAULT_PASS:-elevate-local-only}"
+      OUTBOX_BATCH_SIZE: "10"
+      OUTBOX_POLL_INTERVAL_SECONDS: "2"
+      OUTBOX_RETRY_INITIAL_SECONDS: "1"
+      OUTBOX_RETRY_MAX_SECONDS: "30"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    command: python -m features.outbox.publisher
+    volumes:
+      - ./backend:/app
 
   frontend:
     build: ./frontend
@@ -107,3 +145,4 @@ services:
 
 volumes:
   postgres_data:
+  rabbitmq_data:

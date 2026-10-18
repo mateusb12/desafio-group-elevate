@@ -158,7 +158,7 @@ function Sidebar({
             {labOpen && (
               <nav id="lab-navigation" className="flex flex-col gap-1" aria-label="Navegação do LAB">
                 {labNavigation.map((item) => (
-                  <NavLink key={item.id} to={item.to} aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
+                  <NavLink key={item.id} to={item.to} end aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
                     <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center text-base">✦</span>
                     <span className="hidden sm:inline">{item.label}</span>
                   </NavLink>

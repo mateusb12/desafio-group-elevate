@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { checkCallCenterHealth, listDeliveries, type Delivery, type ServiceHealth } from './deliveries.service'
+import { checkCallCenterHealth, checkRabbitMqHealth, listDeliveries, type Delivery, type ServiceHealth } from './deliveries.service'
 
 type Experiment = {
   id: string
@@ -18,20 +18,20 @@ const experiments: Experiment[] = [
   {
     id: 'outbox', title: 'Persistência da Outbox', status: 'Disponível',
     objective: 'Mostrar que a intenção de entrega nasce na mesma transação do lead.',
-    problem: 'Como preservar a intenção de entregar mesmo antes de existir um publisher?',
+    problem: 'Como preservar a intenção de entregar antes da publicação no broker?',
     prerequisites: ['Gere leads no LAB Leads.', 'Atualize os dados observados nesta tela.'],
     steps: ['Gerar leads usando o LAB Leads.', 'Localizar o evento correspondente.', 'Conferir distribuição, destino e estado pendente.'],
     expected: 'Cada lead tem distribuição e evento lead.distributed com os mesmos identificadores.',
-    explanation: 'A Outbox registra a intenção no PostgreSQL; a publicação ainda não foi implementada.',
+    explanation: 'A Outbox registra a intenção no PostgreSQL; o publisher a encaminha ao RabbitMQ separadamente.',
   },
   {
-    id: 'rabbitmq', title: 'RabbitMQ indisponível', status: 'Em preparação',
+    id: 'rabbitmq', title: 'RabbitMQ indisponível', status: 'Disponível',
     objective: 'Apresentar a separação entre a transação do banco e a publicação no broker.',
     problem: 'O que acontece quando o banco confirma, mas o broker não responde?',
-    prerequisites: ['RabbitMQ e publisher ainda não estão implementados.', 'A indisponibilidade será simulada manualmente quando o fluxo existir.'],
-    steps: ['Indisponibilizar o RabbitMQ.', 'Criar leads e observar a Outbox.', 'Restabelecer o broker e observar as publicações.'],
+    prerequisites: ['Tenha o terminal aberto na pasta do projeto.', 'Use o LAB Leads para gerar novos leads.'],
+    steps: ['Execute `docker compose stop rabbitmq`.', 'Gere leads e observe os pendentes aumentando.', 'Execute `docker compose start rabbitmq` e atualize os dados.'],
     expected: 'Leads continuam aceitos e eventos permanecem pendentes até a publicação.',
-    explanation: 'A tela apresenta o roteiro, mas não inventa um resultado enquanto o publisher não existe.',
+    explanation: 'A API confirma o lead no PostgreSQL mesmo sem o broker; o publisher retenta e publica após a recuperação.',
   },
   {
     id: 'call-center', title: 'Call center indisponível', status: 'Em preparação',
@@ -46,7 +46,7 @@ const experiments: Experiment[] = [
     id: 'duplicates', title: 'Entrega duplicada', status: 'Em preparação',
     objective: 'Explicar por que Outbox não significa exatamente uma entrega.',
     problem: 'Como evitar processamento duplicado depois de uma publicação ambígua?',
-    prerequisites: ['RabbitMQ, worker e identificação de duplicatas ainda não existem.'],
+    prerequisites: ['O publisher usa o mesmo event_id em novas tentativas.', 'O worker idempotente ainda não existe.'],
     steps: ['Publicar um evento.', 'Simular falha após publicar.', 'Entregar novamente e verificar idempotência.'],
     expected: 'O consumidor reconhece a duplicata e não repete o efeito.',
     explanation: 'O padrão garante persistência da intenção, não a confirmação atômica entre sistemas.',
@@ -62,12 +62,13 @@ const experiments: Experiment[] = [
   },
 ]
 
-const stateLabel: Record<string, string> = { available: 'Disponível', unavailable: 'Indisponível', 'not-implemented': 'Não implementado', unknown: 'Não verificado' }
+const stateLabel: Record<string, string> = { available: 'Disponível', unavailable: 'Indisponível', 'not-implemented': 'Não implementado', 'not-monitored': 'Implementado, não monitorado', unknown: 'Não verificado' }
 
 const stateTone: Record<string, string> = {
   available: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   unavailable: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
   'not-implemented': 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  'not-monitored': 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
   unknown: 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400',
 }
 
@@ -93,6 +94,7 @@ const flowIcons: Record<string, string> = {
   Lead: '●',
   'PostgreSQL / Outbox': '▣',
   RabbitMQ: '≋',
+  'Outbox Service': '⇢',
   Worker: '⚙',
   'Call center HTTP': '⌁',
 }
@@ -102,6 +104,7 @@ export function LabDeliveriesPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [counters, setCounters] = useState({ total: 0, pending: 0, published: 0 })
   const [health, setHealth] = useState<ServiceHealth[]>([])
+  const [rabbitMqState, setRabbitMqState] = useState<'available' | 'unavailable' | 'unknown'>('unknown')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -114,13 +117,14 @@ export function LabDeliveriesPage() {
     else setRefreshing(true)
     setError('')
     setHealthError('')
-    const [deliveryResult, healthResult] = await Promise.allSettled([listDeliveries(), checkCallCenterHealth()])
+    const [deliveryResult, healthResult, rabbitMqResult] = await Promise.allSettled([listDeliveries(), checkCallCenterHealth(), checkRabbitMqHealth()])
     if (deliveryResult.status === 'fulfilled') {
       setDeliveries(deliveryResult.value.deliveries)
       setCounters(deliveryResult.value.counters)
     } else setError(deliveryResult.reason instanceof Error ? deliveryResult.reason.message : 'Falha ao consultar a Outbox.')
     if (healthResult.status === 'fulfilled') setHealth(healthResult.value)
     else setHealthError(healthResult.reason instanceof Error ? healthResult.reason.message : 'Falha ao consultar simuladores.')
+    if (rabbitMqResult.status === 'fulfilled') setRabbitMqState(rabbitMqResult.value.state)
     setLoading(false)
     setRefreshing(false)
   }, [])
@@ -134,10 +138,11 @@ export function LabDeliveriesPage() {
   const flow = useMemo(() => [
     { label: 'Lead', state: deliveries.length || counters.total ? 'available' : 'unknown' },
     { label: 'PostgreSQL / Outbox', state: error ? 'unknown' : loading ? 'unknown' : 'available' },
-    { label: 'RabbitMQ', state: 'not-implemented' },
+    { label: 'Outbox Service', state: 'not-monitored' },
+    { label: 'RabbitMQ', state: rabbitMqState },
     { label: 'Worker', state: 'not-implemented' },
     { label: 'Call center HTTP', state: health.length ? (health.some((item) => item.state === 'available') ? 'available' : 'unavailable') : 'unknown' },
-  ], [counters.total, deliveries.length, error, health, loading])
+  ], [counters.total, deliveries.length, error, health, loading, rabbitMqState])
 
   async function copyIdentifier(value: string) {
     try {

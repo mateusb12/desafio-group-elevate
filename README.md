@@ -13,6 +13,7 @@ Serviços disponíveis:
 - Frontend: <http://localhost:5173>
 - API: <http://localhost:5000>
 - PostgreSQL: `localhost:5433` (`elevate` / `elevate-local-only`)
+- RabbitMQ Management UI: <http://localhost:15672>
 - Simuladores HTTP: Logicall (`http://localhost:8101`), Salesbound
   (`http://localhost:8102`) e AtendeMais (`http://localhost:8103`)
 
@@ -39,9 +40,14 @@ curl -X POST http://localhost:8103/leads \
 ```
 
 Os simuladores ainda não estão conectados ao dispatcher e não recebem chamadas
-do backend durante a criação de leads. Em uma etapa posterior, RabbitMQ e
-Transactional Outbox serão introduzidos para encaminhamento assíncrono
-confiável.
+do backend durante a criação de leads. O RabbitMQ recebe os eventos por um
+publisher independente; ainda não existe Delivery Worker nem envio HTTP
+automático aos call centers.
+
+RabbitMQ fica disponível no Management UI em <http://localhost:15672>.
+As credenciais locais são `RABBITMQ_DEFAULT_USER` e `RABBITMQ_DEFAULT_PASS`
+(por padrão, `elevate` / `elevate-local-only`). O publisher pode ser observado
+com `docker compose logs -f outbox-service`.
 
 Pare com `docker compose down`, sem apagar o volume.
 
@@ -82,10 +88,25 @@ Assim, uma falha reverte todas as partes juntas e não deixa uma distribuição
 sem a intenção correspondente de publicação. O payload contém somente os IDs
 do evento, lead, distribuição e call center; não inclui dados pessoais.
 
-Ainda não existe publicação em RabbitMQ, worker ou envio HTTP automático. Por
-isso, as novas entregas permanecem com `published_at = NULL`. A persistência da
-Outbox não garante exatamente uma entrega: quando o publisher for implementado,
-o consumidor precisará tratar possíveis duplicatas.
+O fluxo atual é: **Persistido na Outbox → Publicado no RabbitMQ → Entregue ao
+call center**. Nesta etapa, somente os dois primeiros estados existem.
+
+O **Outbox Service** consulta eventos pendentes em lotes pequenos, declara a
+fila durável `lead.distributed` e publica mensagens JSON persistentes com
+publisher confirms e `mandatory=true`. Só depois da confirmação positiva e do
+roteamento para a fila ele preenche `published_at`. PostgreSQL e RabbitMQ não
+compartilham um commit distribuído: se o broker estiver indisponível, o lead
+continua sendo confirmado e o evento permanece pendente para retry.
+
+Essa é uma publicação **at-least-once**. Se RabbitMQ confirmar e a atualização
+posterior no PostgreSQL falhar, a próxima tentativa pode publicar novamente o
+mesmo `event_id`; não há promessa de exactly-once. O futuro consumidor deverá
+ser idempotente por esse identificador. Nesta demonstração há uma única
+instância do publisher; múltiplas réplicas não são declaradas seguras.
+
+Para demonstrar a recuperação: execute `docker compose stop rabbitmq`, gere
+leads no LAB Leads e observe os pendentes aumentarem; depois execute
+`docker compose start rabbitmq` e acompanhe os logs e os contadores do LAB.
 
 ## 6–7. Recebimento e validação
 
