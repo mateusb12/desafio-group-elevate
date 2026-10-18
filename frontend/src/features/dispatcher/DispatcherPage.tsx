@@ -13,7 +13,7 @@ export function DispatcherPage() {
   function update(id: string, percentage: number) { setAllocations((current) => current.map((item) => item.id === id ? { ...item, percentage } : item)); setMessage('') }
   async function save() {
     setSaving(true); setMessage(''); setError('')
-    try { const saved = await saveAllocations(allocations); setAllocations(saved); setSavedAllocations(saved); setMessage('Configurações salvas para esta demonstração.') }
+    try { const saved = await saveAllocations(allocations); setAllocations(saved); setSavedAllocations(saved); setMessage('Configurações salvas no backend.') }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Não foi possível salvar.') }
     finally { setSaving(false) }
   }

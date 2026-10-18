@@ -178,7 +178,7 @@ Em cada cadastro, o algoritmo:
 2. Escolhe o maior **déficit ponderado**.
 3. Grava o `call_center_id` escolhido.
 
-Essa abordagem mantém a proporção mais estável em amostras pequenas do que sorteios independentes. A edição dos pesos na interface ainda é demonstrativa.
+Essa abordagem mantém a proporção mais estável em amostras pequenas do que sorteios independentes. A edição dos pesos na interface é persistida pelo backend e usada pelo dispatcher real.
 
 ## 13. Concorrência
 
@@ -245,7 +245,7 @@ Controles da integração:
 - [x] Listar leads reais com filtros e paginação demonstrativos no frontend.
 - [x] Criar endpoint de métricas reais para o dashboard.
 - [x] Criar API de leitura e alteração dos pesos de distribuição.
-- [ ] Conectar a configuração de pesos ao backend, substituindo localStorage.
+- [x] Conectar a configuração de pesos ao backend, substituindo localStorage.
 - [x] Implementar filtros no backend.
 - [x] Implementar paginação no backend.
 - [ ] Criar consulta de detalhes e atualização de status para operadores.

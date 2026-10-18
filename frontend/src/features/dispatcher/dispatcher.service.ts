@@ -1,38 +1,40 @@
+import { csrfHeaders } from '../auth/auth.service'
+
 export type CallCenterAllocation = { id: string; name: string; percentage: number }
 
-const storageKey = 'group-elevate:dispatcher-allocations'
+type AllocationsResponse = { allocations?: CallCenterAllocation[]; error?: string }
 
-const defaultAllocations: CallCenterAllocation[] = [
-  { id: 'call-center-a', name: 'Logicall', percentage: 50 },
-  { id: 'call-center-b', name: 'Salesbound', percentage: 30 },
-  { id: 'call-center-c', name: 'AtendeMais', percentage: 20 },
-]
+async function readResponse(response: Response): Promise<AllocationsResponse> {
+  const body = await response.json() as AllocationsResponse
+  if (!response.ok) throw new Error(body.error ?? 'Não foi possível atualizar as configurações.')
+  if (!Array.isArray(body.allocations)) throw new Error('Resposta inválida do dispatcher.')
+  return body
+}
 
 export async function getAllocations(): Promise<CallCenterAllocation[]> {
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  const storedAllocations = localStorage.getItem(storageKey)
-  if (!storedAllocations) {
-    localStorage.setItem(storageKey, JSON.stringify(defaultAllocations))
-    return defaultAllocations.map((item) => ({ ...item }))
-  }
-
-  try {
-    return (JSON.parse(storedAllocations) as CallCenterAllocation[]).map((item) => ({
-      ...item,
-      name: defaultAllocations.find((center) => center.id === item.id)?.name ?? item.name,
-    }))
-  } catch {
-    localStorage.setItem(storageKey, JSON.stringify(defaultAllocations))
-    return defaultAllocations.map((item) => ({ ...item }))
-  }
+  const response = await fetch('/api/api/dispatcher/weights', {
+    credentials: 'same-origin',
+  })
+  const body = await readResponse(response)
+  return body.allocations ?? []
 }
 
 export async function saveAllocations(next: CallCenterAllocation[]): Promise<CallCenterAllocation[]> {
-  await new Promise((resolve) => setTimeout(resolve, 250))
   if (next.some((item) => item.percentage < 0) || next.reduce((total, item) => total + item.percentage, 0) !== 100) {
     throw new Error('A soma das porcentagens precisa ser igual a 100%.')
   }
-  const savedAllocations = next.map((item) => ({ ...item }))
-  localStorage.setItem(storageKey, JSON.stringify(savedAllocations))
-  return savedAllocations.map((item) => ({ ...item }))
+
+  const response = await fetch('/api/api/dispatcher/weights', {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      ...csrfHeaders(),
+    },
+    body: JSON.stringify({
+      allocations: next.map(({ id, percentage }) => ({ id, percentage })),
+    }),
+  })
+  const body = await readResponse(response)
+  return body.allocations ?? []
 }
