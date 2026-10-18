@@ -8,7 +8,7 @@ from sqlalchemy import select
 from auth import auth_blueprint
 from auth.models import TokenBlocklist
 from auth.service import seed_demo_users
-from database import db_session, initialize_database
+from database import db_session
 from dispatcher import models as dispatcher_models  # noqa: F401
 from leads import leads_blueprint
 from webhooks import webhooks_blueprint
@@ -51,7 +51,6 @@ def create_app() -> Flask:
     return app
 
 
-initialize_database()
 if os.getenv("SEED_DEMO") == "1":
     with db_session() as database:
         seed_demo_users(database)

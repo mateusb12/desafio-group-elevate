@@ -15,6 +15,16 @@ services:
       timeout: 3s
       retries: 15
 
+  migrations:
+    build: ./backend
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DATABASE_URL: "postgresql+psycopg://elevate:elevate-local-only@db:5432/elevate"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: alembic upgrade head
+
   backend:
     build: ./backend
     environment:
@@ -25,17 +35,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     command: flask --app app run --debug --host=0.0.0.0 --port=5000
     ports:
       - "5000:5000"
     volumes:
       - ./backend:/app
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:5000/ping', timeout=2)"
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:5000/ping', timeout=2)"]
       interval: 5s
       timeout: 3s
       retries: 5

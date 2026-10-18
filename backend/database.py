@@ -21,7 +21,3 @@ def db_session() -> Session:
         yield db
     finally:
         db.close()
-
-
-def initialize_database() -> None:
-    Base.metadata.create_all(engine)
