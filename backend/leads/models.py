@@ -2,7 +2,6 @@ from uuid import uuid4
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -30,7 +29,6 @@ class Product(Base):
 
     code: Mapped[str] = mapped_column(String(80), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class Funnel(Base):
@@ -38,7 +36,6 @@ class Funnel(Base):
 
     code: Mapped[str] = mapped_column(String(80), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class ProductFunnel(Base):
@@ -50,7 +47,6 @@ class ProductFunnel(Base):
     funnel_code: Mapped[str] = mapped_column(
         String(80), ForeignKey('funnels.code'), primary_key=True
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class Affiliate(Base):
@@ -58,7 +54,6 @@ class Affiliate(Base):
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class LeadStatus(Base):
@@ -66,7 +61,6 @@ class LeadStatus(Base):
 
     code: Mapped[str] = mapped_column(String(30), primary_key=True)
     label: Mapped[str] = mapped_column(String(80), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class Lead(Base):

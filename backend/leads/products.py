@@ -13,7 +13,7 @@ catalog_blueprint = Blueprint('catalog', __name__, url_prefix='/api')
 def list_products():
     with db_session() as db:
         products = db.scalars(
-            select(Product).where(Product.is_active.is_(True)).order_by(Product.code)
+            select(Product).order_by(Product.code)
         ).all()
         return jsonify(products=[{'code': p.code, 'name': p.name} for p in products])
 
@@ -22,7 +22,7 @@ def list_products():
 def list_funnels():
     with db_session() as db:
         funnels = db.scalars(
-            select(Funnel).where(Funnel.is_active.is_(True)).order_by(Funnel.code)
+            select(Funnel).order_by(Funnel.code)
         ).all()
         return jsonify(funnels=[{'code': f.code, 'name': f.name} for f in funnels])
 
@@ -34,11 +34,6 @@ def list_product_funnels():
             select(ProductFunnel.product_code, ProductFunnel.funnel_code)
             .join(Product, Product.code == ProductFunnel.product_code)
             .join(Funnel, Funnel.code == ProductFunnel.funnel_code)
-            .where(
-                ProductFunnel.is_active.is_(True),
-                Product.is_active.is_(True),
-                Funnel.is_active.is_(True),
-            )
             .order_by(ProductFunnel.product_code, ProductFunnel.funnel_code)
         ).all()
         return jsonify(

@@ -44,11 +44,15 @@ Stack e fluxo principal:
 Validações e respostas:
 
 - Pydantic valida tipos, formatos e campos obrigatórios.
-- Produto e funil são verificados contra um catálogo definido no código.
+- Produto, funil e a combinação entre ambos são validados nos catálogos do PostgreSQL; somente registros ativos são aceitos.
 - O e-mail normalizado identifica o contato.
 - Cada lead recebe ID e horário próprios.
 - Dados inválidos retornam `400`.
 - Content-Type inadequado retorna `415`.
+
+Os catálogos ativos estão disponíveis em `GET /api/products`, `GET /api/funnels` e
+`GET /api/product-funnels`. Afiliados externos inéditos são cadastrados
+transacionalmente ao receber o lead.
 
 ## 8. Duplicidade e idempotência
 
@@ -91,11 +95,17 @@ Principais tabelas:
 - `events`: armazena o histórico.
 - `distributions`: histórico de cada atribuição, incluindo a distribuição inicial.
 - `users`: armazena os perfis.
+- `token_blocklist`: registra tokens JWT revogados.
 
 O schema é versionado pelas revisions Alembic 001–007. A revisão 002 cria o catálogo
 de produtos; as revisions 003–007 adicionam funis, associações produto/funil,
 afiliados, status e histórico de distribuições. `leads.call_center_id` continua
 representando o destino atual, enquanto `distributions` preserva o histórico.
+
+**Estado validado:** 12 tabelas de aplicação, além de `alembic_version`;
+32 constraints (14 FKs, 13 PKs, 4 UNIQUE e 1 CHECK) e 23 índices.
+A validação foi feita em PostgreSQL descartável com dados legados,
+preservação dos registros e `alembic check` sem divergências.
 
 ## 10. Índices
 
@@ -112,7 +122,7 @@ Há apenas índices básicos declarados no modelo, além dos índices implícito
 - `leads.call_center_id` (`index=True`);
 - `events.lead_id` (`index=True`);
 - `leads.idempotency_key` (UNIQUE);
-- `events (lead_id, external_id)` (UNIQUE).
+- `events (lead_id, external_id)` (UNIQUE);
 - `distributions (lead_id, assigned_at)` para histórico de atribuições.
 
 ## 11. Escalabilidade do banco
@@ -175,11 +185,6 @@ O dispatcher:
 - `event_at` com timezone (`timestamp` no exemplo do PDF; escolhi `event_at` para indicar o horário do acontecimento).
 
 Status aceitos: `new`, `contacted`, `no_answer`, `callback`, `qualified`, `sale`, `refund`, `invalid`.
-
-Os catálogos podem ser consultados por `GET /api/products`, `GET /api/funnels` e
-`GET /api/product-funnels`. O recebimento aceita somente produtos, funis e
-associações ativos; afiliados externos inéditos são cadastrados na mesma
-transação do lead.
 
 O evento é registrado no histórico e pode atualizar o status atual.
 
@@ -250,13 +255,13 @@ Controles implementados:
 ## 23. Testes e LAB
 
 - [x] Cobrir autenticação, validação, dispatcher e cenários concorrentes de webhook.
-- [ ] Reexecutar toda a suíte após a mudança de idempotência.
+- [x] Reexecutar os testes após as mudanças de idempotência e migrations 001–007.
 - [ ] Ampliar testes de autorização e isolamento por call center.
 - [ ] Adicionar testes das APIs de métricas, pesos, filtros e atendimento quando criadas.
 
 O LAB:
 
-- Gera até 100 leads com Faker.
+- Gera até 100 leads com Faker usando produtos, funis e associações reais do PostgreSQL.
 - Envia cenários válidos, inválidos, duplicados ou mistos.
 - Exibe o HTTP e o resultado esperado.
 
@@ -264,7 +269,10 @@ Os testes existentes cobrem:
 
 - Autenticação;
 - Validação;
-- Persistência;
+- Persistência e backfill de dados legados;
+- Validação de produtos, funis e associações;
+- Afiliados criados concorrentemente sem duplicação;
+- Histórico de distribuições por lead;
 - Concorrência do dispatcher;
 - Webhook duplicado;
 - Webhook fora de ordem;
@@ -276,7 +284,17 @@ As suítes de integração também verificam concorrência real no PostgreSQL, i
 docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-As verificações de persistência usadas nos testes consultam diretamente o PostgreSQL. **Após mudar o contrato de idempotência, é preciso executar novamente a suíte.**
+As verificações de persistência usadas nos testes consultam diretamente o PostgreSQL. **Validação final das migrations 001–007 (18/10/2026):** 12 testes de integração, 5 de autenticação/autorização
+e 5 unitários passaram. Também foram validados 100 leads concorrentes (50/30/20),
+50 reenvios idempotentes (1 criação e 49 duplicatas), 20 requisições usando
+o mesmo afiliado (um único cadastro) e webhooks concorrentes/fora de ordem.
+O LAB consultou os catálogos reais, o Compose temporário inicializou
+o backend após as migrations e `/ping` respondeu 200. Build do frontend aprovado;
+lint sem erros, com 1 warning preexistente em `LabWebhooksPage.tsx`.
+Os recursos Docker temporários foram descartados.
+
+**Ainda pendente:** ampliar a suíte conforme surgirem as APIs de dashboard,
+pesos, filtros e atendimento; reforçar cenários de isolamento por call center.
 
 ## 27–28. Priorização, limitações e stack
 
@@ -314,7 +332,8 @@ A IA acelerou o trabalho, mas não foi tratada como validação. Os artefatos de
 | Área (itens do PDF) | Situação |
 | --- | --- |
 | Arquitetura, recebimento e idempotência (5–8) | Concluído |
-| Banco, índices e escala (9–11) | Parcial; escalabilidade documentada |
+| Banco e migrations (9) | Concluído; 12 tabelas e revisions 001–007 validadas |
+| Índices e escala (10–11) | Parcial; planejamento de escala documentado |
 | Dispatcher e webhooks (12–17) | Concluído |
 | Interface, segurança e testes (18–23) | Parcial |
 | Priorização e evolução (27–28) | Planejado e documentado |

@@ -85,7 +85,6 @@ def receive_lead():
         product_exists = db.scalar(
             select(Product.code).where(
                 Product.code == clean['product'],
-                Product.is_active.is_(True),
             )
         )
         if product_exists is None:
@@ -94,7 +93,6 @@ def receive_lead():
         funnel_exists = db.scalar(
             select(Funnel.code).where(
                 Funnel.code == clean['funnel'],
-                Funnel.is_active.is_(True),
             )
         )
         if funnel_exists is None:
@@ -105,7 +103,6 @@ def receive_lead():
             .where(
                 ProductFunnel.product_code == clean['product'],
                 ProductFunnel.funnel_code == clean['funnel'],
-                ProductFunnel.is_active.is_(True),
             )
         )
         if valid_association is None:

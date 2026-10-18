@@ -15,7 +15,7 @@ def get_or_create_affiliate(db: Session, affiliate_id: str) -> Affiliate:
 
     inserted_id = db.scalar(
         insert(Affiliate)
-        .values(id=affiliate_id, name=affiliate_id, is_active=True)
+        .values(id=affiliate_id, name=affiliate_id)
         .on_conflict_do_nothing(index_elements=[Affiliate.id])
         .returning(Affiliate.id)
     )

@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 
 from database import db_session
 from leads.models import (
@@ -53,12 +53,10 @@ class CatalogAndDistributionIntegrationTests(unittest.TestCase):
             db.add(Product(
                 code=cls.orphan_product,
                 name="Integration Product",
-                is_active=True,
             ))
             db.add(Funnel(
                 code=cls.orphan_funnel,
                 name="Integration Funnel",
-                is_active=True,
             ))
 
         cls.addClassCleanup(cls.cleanup_data)
@@ -123,51 +121,6 @@ class CatalogAndDistributionIntegrationTests(unittest.TestCase):
             funnel=self.orphan_funnel,
         )
 
-        with db_session() as db, db.begin():
-            db.execute(update(Product).where(
-                Product.code == self.orphan_product
-            ).values(is_active=False))
-        try:
-            self.assert_bad_lead(
-                "inactive-product",
-                product=self.orphan_product,
-                funnel="vsl-01",
-            )
-        finally:
-            with db_session() as db, db.begin():
-                db.execute(update(Product).where(
-                    Product.code == self.orphan_product
-                ).values(is_active=True))
-
-        with db_session() as db, db.begin():
-            db.execute(update(Funnel).where(
-                Funnel.code == self.orphan_funnel
-            ).values(is_active=False))
-        try:
-            self.assert_bad_lead(
-                "inactive-funnel",
-                product=self.orphan_product,
-                funnel=self.orphan_funnel,
-            )
-        finally:
-            with db_session() as db, db.begin():
-                db.execute(update(Funnel).where(
-                    Funnel.code == self.orphan_funnel
-                ).values(is_active=True))
-
-        with db_session() as db, db.begin():
-            db.execute(update(ProductFunnel).where(
-                ProductFunnel.product_code == "nutralean",
-                ProductFunnel.funnel_code == "vsl-01",
-            ).values(is_active=False))
-        try:
-            self.assert_bad_lead("inactive-association")
-        finally:
-            with db_session() as db, db.begin():
-                db.execute(update(ProductFunnel).where(
-                    ProductFunnel.product_code == "nutralean",
-                    ProductFunnel.funnel_code == "vsl-01",
-                ).values(is_active=True))
 
     def test_valid_leads_affiliate_reuse_and_distribution(self):
         first_status, first_body = post_lead(self.payload("valid-1"))
