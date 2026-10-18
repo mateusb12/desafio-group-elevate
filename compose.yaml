@@ -63,5 +63,47 @@ services:
       backend:
         condition: service_healthy
 
+  logicall:
+    build: ./simulators/callcenter
+    environment:
+      CALL_CENTER_NAME: Logicall
+      CALL_CENTER_ID: call-center-a
+      PORT: "8101"
+    ports:
+      - "127.0.0.1:8101:8101"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8101/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  salesbound:
+    build: ./simulators/callcenter
+    environment:
+      CALL_CENTER_NAME: Salesbound
+      CALL_CENTER_ID: call-center-b
+      PORT: "8102"
+    ports:
+      - "127.0.0.1:8102:8102"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8102/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  atendemais:
+    build: ./simulators/callcenter
+    environment:
+      CALL_CENTER_NAME: AtendeMais
+      CALL_CENTER_ID: call-center-c
+      PORT: "8103"
+    ports:
+      - "127.0.0.1:8103:8103"
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8103/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:

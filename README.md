@@ -13,6 +13,35 @@ Serviços disponíveis:
 - Frontend: <http://localhost:5173>
 - API: <http://localhost:5000>
 - PostgreSQL: `localhost:5433` (`elevate` / `elevate-local-only`)
+- Simuladores HTTP: Logicall (`http://localhost:8101`), Salesbound
+  (`http://localhost:8102`) e AtendeMais (`http://localhost:8103`)
+
+Os três simuladores representam APIs externas fictícias para testar a futura
+integração com os call centers cadastrados: Logicall (`call-center-a`),
+Salesbound (`call-center-b`) e AtendeMais (`call-center-c`). Internamente, os
+endpoints são `http://logicall:8101/leads`,
+`http://salesbound:8102/leads` e `http://atendemais:8103/leads`; no host,
+as mesmas APIs ficam disponíveis nas portas locais 8101, 8102 e 8103.
+
+Depois de iniciar o Compose, teste a saúde e o recebimento de um lead:
+
+```bash
+curl http://localhost:8101/health
+curl -X POST http://localhost:8101/leads \
+  -H 'Content-Type: application/json' \
+  -d '{"lead_id":"demo-001","name":"Exemplo"}'
+curl -X POST http://localhost:8102/leads \
+  -H 'Content-Type: application/json' \
+  -d '{"lead_id":"demo-002"}'
+curl -X POST http://localhost:8103/leads \
+  -H 'Content-Type: application/json' \
+  -d '{"lead_id":"demo-003"}'
+```
+
+Os simuladores ainda não estão conectados ao dispatcher e não recebem chamadas
+do backend durante a criação de leads. Em uma etapa posterior, RabbitMQ e
+Transactional Outbox serão introduzidos para encaminhamento assíncrono
+confiável.
 
 Pare com `docker compose down`, sem apagar o volume.
 
