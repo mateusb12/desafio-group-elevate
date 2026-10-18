@@ -17,20 +17,65 @@ type ProductsResponse = {
   error?: string
 }
 
+type FunnelsResponse = {
+  funnels?: { code: string }[]
+  error?: string
+}
+
+type ProductFunnelsResponse = {
+  associations?: { productCode: string; funnelCode: string }[]
+  error?: string
+}
+
+export type LeadCatalog = {
+  products: string[]
+  funnels: string[]
+  associations: { productCode: string; funnelCode: string }[]
+}
+
 export type LeadSubmission = {
   status: number
   id?: string
   error?: string
 }
 
+async function readJson<T extends { error?: string }>(response: Response): Promise<T> {
+  const body = await response.json() as T
+  if (!response.ok) throw new Error(body.error ?? 'Falha ao consultar catálogo.')
+  return body
+}
+
 export async function listProducts(): Promise<string[]> {
   const response = await fetch('/api/api/products', { credentials: 'same-origin' })
-  const body = await response.json() as ProductsResponse
-
-  if (!response.ok) throw new Error(body.error ?? 'Falha ao consultar produtos.')
+  const body = await readJson<ProductsResponse>(response)
   if (!Array.isArray(body.products)) throw new Error('Resposta inválida do catálogo de produtos.')
 
   return body.products.map((product) => product.code)
+}
+
+export async function listFunnels(): Promise<string[]> {
+  const response = await fetch('/api/api/funnels', { credentials: 'same-origin' })
+  const body = await readJson<FunnelsResponse>(response)
+  if (!Array.isArray(body.funnels)) throw new Error('Resposta inválida do catálogo de funis.')
+
+  return body.funnels.map((funnel) => funnel.code)
+}
+
+export async function listProductFunnels(): Promise<LeadCatalog['associations']> {
+  const response = await fetch('/api/api/product-funnels', { credentials: 'same-origin' })
+  const body = await readJson<ProductFunnelsResponse>(response)
+  if (!Array.isArray(body.associations)) throw new Error('Resposta inválida das associações.')
+
+  return body.associations
+}
+
+export async function listLeadCatalog(): Promise<LeadCatalog> {
+  const [products, funnels, associations] = await Promise.all([
+    listProducts(),
+    listFunnels(),
+    listProductFunnels(),
+  ])
+  return { products, funnels, associations }
 }
 
 export async function submitLead(payload: LeadPayload, idempotencyKey: string): Promise<LeadSubmission> {

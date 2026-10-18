@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { fakerPT_BR as faker } from '@faker-js/faker'
-import { clearLabLeads as clearLabLeadsRequest, listProducts, submitLead, type LeadPayload } from './lab.service'
+import { clearLabLeads as clearLabLeadsRequest, listLeadCatalog, submitLead, type LeadCatalog, type LeadPayload } from './lab.service'
 
 type Scenario =
   | 'valid'
@@ -37,26 +37,26 @@ const scenarios: { id: Scenario; label: string; description: string }[] = [
 ]
 const selectableScenarios: Scenario[] = ['valid', 'mixed']
 
-const funnels = ['vsl-01', 'webinar-02', 'checkout-03']
 const sources = ['facebook', 'instagram', 'google', 'youtube']
 const issueScenarios: Scenario[] = [
   'valid', 'invalid-email', 'invalid-phone', 'missing-name',
   'unknown-product', 'unknown-funnel', 'invalid-utm', 'invalid-types',
 ]
 
-function randomLead(products: string[]): LeadPayload {
+function randomLead(catalog: LeadCatalog): LeadPayload {
   const name = faker.person.fullName()
   const [firstName, ...lastName] = name.split(' ')
   const source = faker.helpers.arrayElement(sources)
   const campaign = `campaign-${faker.string.numeric(3)}`
   const ddd = faker.helpers.arrayElement(['11', '21', '31', '41', '85'])
+  const association = faker.helpers.arrayElement(catalog.associations)
 
   return {
     name,
     email: faker.internet.email({ firstName, lastName: lastName.join(' ') }).toLowerCase(),
     phone: `+55${ddd}9${faker.string.numeric(8)}`,
-    product: faker.helpers.arrayElement(products),
-    funnel: faker.helpers.arrayElement(funnels),
+    product: association.productCode,
+    funnel: association.funnelCode,
     source,
     campaign,
     affiliate_id: faker.string.numeric(3),
@@ -69,8 +69,8 @@ function randomLead(products: string[]): LeadPayload {
   }
 }
 
-function leadForScenario(scenario: Scenario, products: string[]): PreviewLead {
-  const lead = randomLead(products)
+function leadForScenario(scenario: Scenario, catalog: LeadCatalog): PreviewLead {
+  const lead = randomLead(catalog)
   switch (scenario) {
     case 'invalid-email': lead.email = 'email-sem-arroba'; break
     case 'invalid-phone': lead.phone = '123'; break
@@ -110,8 +110,8 @@ function resultPresentation(scenario: Scenario, index: number, ok: boolean) {
 
 export function LabPage() {
   const [quantity, setQuantity] = useState(5)
-  const [products, setProducts] = useState<string[]>([])
-  const [productsError, setProductsError] = useState('')
+  const [catalog, setCatalog] = useState<LeadCatalog>({ products: [], funnels: [], associations: [] })
+  const [catalogError, setCatalogError] = useState('')
   const [scenario, setScenario] = useState<Scenario>('valid')
   const [leads, setLeads] = useState<PreviewLead[]>([])
   const [notice, setNotice] = useState('')
@@ -130,25 +130,27 @@ export function LabPage() {
 
   useEffect(() => {
     let cancelled = false
-    void listProducts()
-      .then((codes) => {
-        if (!codes.length) throw new Error('Nao ha produtos ativos cadastrados.')
-        if (!cancelled) setProducts(codes)
+    void listLeadCatalog()
+      .then((nextCatalog) => {
+        if (!nextCatalog.products.length || !nextCatalog.funnels.length || !nextCatalog.associations.length) {
+          throw new Error('Não há produtos, funis ou associações ativas cadastrados.')
+        }
+        if (!cancelled) setCatalog(nextCatalog)
       })
       .catch((error: unknown) => {
-        if (!cancelled) setProductsError(error instanceof Error ? error.message : 'Erro no catalogo.')
+        if (!cancelled) setCatalogError(error instanceof Error ? error.message : 'Erro no catálogo.')
       })
     return () => { cancelled = true }
   }, [])
 
   function generate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!products.length) {
-      setNotice(productsError || 'Aguardando catalogo de produtos.')
+    if (!catalog.associations.length) {
+      setNotice(catalogError || 'Aguardando catálogo de produtos e funis.')
       return
     }
     const amount = Math.min(100, Math.max(1, quantity))
-    const repeated = scenario === 'duplicate' ? randomLead(products) : null
+    const repeated = scenario === 'duplicate' ? randomLead(catalog) : null
     const repeatedKey = repeated ? crypto.randomUUID() : null
     const generated = Array.from({ length: amount }, (_, index) => repeated
       ? {
@@ -156,7 +158,7 @@ export function LabPage() {
           scenario: 'duplicate' as const,
           idempotencyKey: repeatedKey!,
         }
-      : leadForScenario(scenario === 'mixed' ? issueScenarios[index % issueScenarios.length] : scenario, products))
+      : leadForScenario(scenario === 'mixed' ? issueScenarios[index % issueScenarios.length] : scenario, catalog))
     setLeads(generated)
     setResults({})
     setNotice(`${amount} lead(s) fictício(s) gerado(s).`)
@@ -268,7 +270,7 @@ export function LabPage() {
           </label>
           <p className="mt-2 min-h-10 text-xs leading-relaxed text-slate-500">{selected.description}</p>
 
-          <button disabled={sending || products.length === 0} className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50" type="submit">
+          <button disabled={sending || catalog.associations.length === 0} className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50" type="submit">
             Gerar leads fictícios
           </button>
           <button type="button" disabled={!leads.length || sending} onClick={() => void sendLeads()}
@@ -280,8 +282,8 @@ export function LabPage() {
             {clearing ? 'Limpando banco...' : 'Limpar leads do banco'}
           </button>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Produtos reais do banco ({products.length} ativos). Funil, origem, campanha e afiliado são aleatórios.
-            {productsError && <span className="block text-rose-600">{productsError}</span>}
+            Produtos e funis reais do banco ({catalog.products.length} produtos, {catalog.funnels.length} funis, {catalog.associations.length} combinações ativas). Origem, campanha e afiliado são aleatórios.
+            {catalogError && <span className="block text-rose-600">{catalogError}</span>}
           </p>
         </form>
 

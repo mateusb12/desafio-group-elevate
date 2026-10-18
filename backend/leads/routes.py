@@ -18,20 +18,22 @@ from .idempotency import (
 from dispatcher.service import choose_call_center
 from dispatcher.models import CallCenter
 from . import leads_blueprint
-from .models import Contact, Event, Lead, Product
+from .affiliates import get_or_create_affiliate
+from .models import (
+    Contact,
+    Distribution,
+    Event,
+    Funnel,
+    Lead,
+    Product,
+    ProductFunnel,
+)
 from pydantic import ValidationError
 from .schemas import LeadInput, validation_error_message
-
-# A migration 003 levara os funis para um catalogo proprio.
-FUNNELS = {'vsl-01', 'webinar-02', 'checkout-03'}
-
 
 def validate_lead(body):
     try:
         clean = LeadInput.model_validate(body).model_dump()
-
-        if clean['funnel'] not in FUNNELS:
-            return None, 'Funil desconhecido.'
 
         return clean, None
     except ValidationError as exc:
@@ -89,6 +91,28 @@ def receive_lead():
         if product_exists is None:
             return jsonify(error='Produto desconhecido.'), 400
 
+        funnel_exists = db.scalar(
+            select(Funnel.code).where(
+                Funnel.code == clean['funnel'],
+                Funnel.is_active.is_(True),
+            )
+        )
+        if funnel_exists is None:
+            return jsonify(error='Funil desconhecido.'), 400
+
+        valid_association = db.scalar(
+            select(ProductFunnel.product_code)
+            .where(
+                ProductFunnel.product_code == clean['product'],
+                ProductFunnel.funnel_code == clean['funnel'],
+                ProductFunnel.is_active.is_(True),
+            )
+        )
+        if valid_association is None:
+            return jsonify(error='Combinação produto/funil inválida.'), 400
+
+        get_or_create_affiliate(db, clean['affiliate_id'])
+
         contact_id = db.scalar(
             insert(Contact)
             .values(
@@ -115,19 +139,29 @@ def receive_lead():
         }
 
         lead_id = str(uuid4())
+        received_at = datetime.now(timezone.utc)
+        call_center_id = choose_call_center(db)
 
         db.add(Lead(
             id=lead_id,
             contact_id=contact_id,
-            call_center_id=choose_call_center(db),
+            call_center_id=call_center_id,
             idempotency_key=key,
             payload_hash=payload_hash,
             status='new',
-            received_at=datetime.now(timezone.utc),
+            received_at=received_at,
             **lead_data,
         ))
 
         db.flush()
+
+        db.add(Distribution(
+            id=str(uuid4()),
+            lead_id=lead_id,
+            call_center_id=call_center_id,
+            assigned_at=received_at,
+            reason='initial',
+        ))
 
         db.add(Event(
             lead_id=lead_id,
