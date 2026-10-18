@@ -9,8 +9,8 @@ from uuid import uuid4
 
 from sqlalchemy import delete, func, select
 
-from database import db_session
-from leads.models import (
+from shared.database import db_session
+from features.leads.models import (
     Affiliate,
     Contact,
     Distribution,

@@ -35,7 +35,7 @@ class AuthIntegrationTests(unittest.TestCase):
         os.environ["SEED_DEMO"] = "1"
 
         from app import app
-        from database import engine
+        from shared.database import engine
 
         cls.app = app
         cls.app.config["TESTING"] = True
@@ -141,8 +141,8 @@ class AuthIntegrationTests(unittest.TestCase):
 
     def test_inactive_user_cannot_login(self):
         from sqlalchemy import select
-        from auth.models import User
-        from database import db_session
+        from features.auth.models import User
+        from shared.database import db_session
 
         with db_session() as db:
             user = db.scalar(

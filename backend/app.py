@@ -5,16 +5,16 @@ from flask import Flask, jsonify
 from flask_jwt_extended import JWTManager
 from sqlalchemy import select
 
-from auth import auth_blueprint
-from auth.models import TokenBlocklist
-from auth.service import seed_demo_users
-from database import db_session
-from demo import reset_and_seed_demo
-from dispatcher import models as dispatcher_models  # noqa: F401
-from leads import leads_blueprint
-from leads.products import catalog_blueprint
-from webhooks import webhooks_blueprint
-from leads import models as leads_models  # noqa: F401
+from features.auth import auth_blueprint
+from features.auth.models import TokenBlocklist
+from features.auth.service import seed_demo_users
+from features.dispatcher import models as dispatcher_models  # noqa: F401
+from features.leads import leads_blueprint
+from features.leads.products import catalog_blueprint
+from features.leads import models as leads_models  # noqa: F401
+from features.webhooks import webhooks_blueprint
+from shared.database import db_session
+from shared.demo import reset_and_seed_demo
 
 
 def create_app() -> Flask:
@@ -58,7 +58,7 @@ if os.getenv("SEED_DEMO") == "1":
     if os.getenv("RESET_DEMO") == "1":
         reset_and_seed_demo()
     else:
-        from leads.products import seed_demo_catalog
+        from features.leads.products import seed_demo_catalog
 
         with db_session() as database:
             seed_demo_users(database)

@@ -18,9 +18,9 @@ from pydantic import (
     field_validator,
 )
 
-from auth.models import User, UserRole
-from database import db_session
-from leads.models import Event, Lead
+from features.auth.models import User, UserRole
+from shared.database import db_session
+from features.leads.models import Event, Lead
 
 webhooks_blueprint = Blueprint(
     'webhooks', __name__, url_prefix='/api/webhooks'

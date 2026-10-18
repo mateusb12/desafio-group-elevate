@@ -3,7 +3,7 @@
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from dispatcher.models import CallCenter
+from .models import CallCenter
 
 
 def lock_call_center_distribution(db: Session) -> None:
@@ -28,7 +28,7 @@ def count_leads_by_call_center(
     call_center_ids: list[str],
 ) -> dict[str, int]:
     """Conta os leads já distribuídos para cada call center informado."""
-    from leads.models import Lead
+    from features.leads.models import Lead
 
     return dict(
         db.execute(

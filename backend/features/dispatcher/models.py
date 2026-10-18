@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from database import Base
+from shared.database import Base
 
 
 class CallCenter(Base):

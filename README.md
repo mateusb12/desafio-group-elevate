@@ -36,7 +36,8 @@ Stack e fluxo principal:
 
 - Stack: React/TypeScript → Flask/SQLAlchemy → PostgreSQL.
 - Fluxo: formulário → `POST /api/leads` → validação/contato → dispatcher → call center registrado no lead → `POST /api/webhooks/callcenter` → histórico/status → interface.
-- Organização do backend: `auth/`, `leads/` e `dispatcher/`.
+- Organização do backend: features verticais em `backend/features/` e
+  infraestrutura compartilhada em `backend/shared/`.
 - A atribuição é persistida no banco.
 - Não há filas, Redis ou envio para call centers reais.
 

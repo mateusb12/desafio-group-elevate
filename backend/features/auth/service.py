@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from dispatcher.models import CallCenter
+from features.dispatcher.models import CallCenter
 
 from .models import User, UserRole
 

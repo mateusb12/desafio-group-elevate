@@ -1,12 +1,12 @@
 """Migrations Alembic usando o mesmo engine e metadata da aplicacao."""
 
 from alembic import context
-from database import Base, engine
+from shared.database import Base, engine
 
 # Cada dominio registra suas tabelas na metadata compartilhada.
-from auth import models as auth_models  # noqa: F401
-from dispatcher import models as dispatcher_models  # noqa: F401
-from leads import models as leads_models  # noqa: F401
+from features.auth import models as auth_models  # noqa: F401
+from features.dispatcher import models as dispatcher_models  # noqa: F401
+from features.leads import models as leads_models  # noqa: F401
 
 
 def run_migrations_online():

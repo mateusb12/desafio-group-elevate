@@ -8,15 +8,15 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
-from auth.models import User, UserRole
-from database import db_session
+from features.auth.models import User, UserRole
+from shared.database import db_session
 from .idempotency import (
     acquire_idempotency_lock,
     normalize_idempotency_key,
     calculate_payload_hash,
 )
-from dispatcher.service import choose_call_center
-from dispatcher.models import CallCenter
+from features.dispatcher.service import choose_call_center
+from features.dispatcher.models import CallCenter
 from . import leads_blueprint
 from .affiliates import get_or_create_affiliate
 from .models import (

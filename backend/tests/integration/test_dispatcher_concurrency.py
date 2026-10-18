@@ -10,9 +10,9 @@ from uuid import uuid4
 
 from sqlalchemy import delete, func, select, text
 
-from database import db_session
-from dispatcher.models import CallCenter
-from leads.models import Contact, Event, Lead
+from shared.database import db_session
+from features.dispatcher.models import CallCenter
+from features.leads.models import Contact, Event, Lead
 
 
 URL = "http://127.0.0.1:5000/api/leads"

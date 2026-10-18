@@ -1,9 +1,8 @@
 # Backend
 
-API Flask organizada por fatias verticais. A autenticação está em `auth/`, com
-Blueprint, serviço e entidade ORM próprios. `CallCenter` pertence ao domínio
-operacional `dispatcher/`; `database.py` concentra somente a infraestrutura
-compartilhada do SQLAlchemy.
+API Flask organizada por fatias verticais. Cada contexto fica em `features/`
+(`auth/`, `leads/`, `dispatcher/` e `webhooks/`), enquanto `shared/` concentra
+somente infraestrutura e operações comuns, como banco e dados demo.
 
 ## Executar
 

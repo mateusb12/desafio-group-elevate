@@ -1,7 +1,7 @@
 import unittest
 
 from pydantic import ValidationError
-from leads.schemas import LeadInput, validation_error_message
+from features.leads.schemas import LeadInput, validation_error_message
 
 
 class LeadSchemaTests(unittest.TestCase):

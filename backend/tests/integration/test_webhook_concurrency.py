@@ -13,9 +13,9 @@ from flask_jwt_extended import create_access_token, get_csrf_token
 from sqlalchemy import delete, select, text
 
 from app import app
-from auth.models import User, UserRole
-from database import db_session
-from leads.models import Contact, Event, Lead
+from features.auth.models import User, UserRole
+from shared.database import db_session
+from features.leads.models import Contact, Event, Lead
 
 
 BASE_URL = "http://127.0.0.1:5000"

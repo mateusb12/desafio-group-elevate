@@ -3,7 +3,7 @@
 from flask import Blueprint, jsonify
 from sqlalchemy import select
 
-from database import db_session
+from shared.database import db_session
 from .models import Funnel, LeadStatus, Product, ProductFunnel
 
 catalog_blueprint = Blueprint('catalog', __name__, url_prefix='/api')

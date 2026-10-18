@@ -10,7 +10,7 @@ from flask_jwt_extended import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from database import db_session
+from shared.database import db_session
 
 from . import auth_blueprint
 from .models import TokenBlocklist, User

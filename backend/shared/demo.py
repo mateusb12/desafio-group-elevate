@@ -2,10 +2,10 @@
 
 from sqlalchemy import delete
 
-from auth.models import TokenBlocklist, User
-from database import db_session
-from dispatcher.models import CallCenter
-from leads.models import (
+from features.auth.models import TokenBlocklist, User
+from shared.database import db_session
+from features.dispatcher.models import CallCenter
+from features.leads.models import (
     Affiliate,
     Contact,
     Distribution,
@@ -38,8 +38,8 @@ def reset_demo_data(db):
 
 
 def reset_and_seed_demo():
-    from auth.service import seed_demo_users
-    from leads.products import seed_demo_catalog
+    from features.auth.service import seed_demo_users
+    from features.leads.products import seed_demo_catalog
 
     with db_session() as db:
         reset_demo_data(db)
