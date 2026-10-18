@@ -340,16 +340,19 @@ Evitei infraestrutura extra sem necessidade comprovada.
 
 - [x] Documentar decisões, correções, limitações e validações realizadas com IA.
 
-Usei ChatGPT e Codex para discutir alternativas, implementar mudanças, revisar código e construir testes. Exemplos em que **revisei ou corrigi a saída**:
+Usei ChatGPT para discutir arquitetura e revisar decisões, e Codex como apoio à implementação, refatoração e testes. Meu processo não foi aceitar automaticamente a primeira solução: comparei sugestões com o enunciado, examinei o código e confrontei o resultado com testes e dados persistidos.
 
-- Migrei de SQLite para PostgreSQL para coordenar operações concorrentes.
-- Comparei sessões Flask e JWT, escolhendo Flask-JWT-Extended em vez de implementar autenticação própria.
-- Reduzi abstrações e separei autenticação de autorização.
-- Corrigi um teste de expiração que criava o token já expirado, em vez de deixá-lo expirar após login válido.
-- Encontrei no LAB uma regressão da validação Pydantic: produtos/funis inexistentes eram aceitos. Corrigi e acrescentei regressão.
-- Verifiquei resultados no PostgreSQL, além dos testes e do build Docker.
+**Exemplos concretos de revisão e decisões próprias:**
 
-A IA acelerou o trabalho, mas não foi tratada como validação. Não utilizei arquivos persistentes de instrução como `AGENTS.md` ou `CLAUDE.md`; não criei arquivos retroativos apenas para cumprir o item 25. As decisões e revisões ficam no histórico Git e nesta documentação.
+- **Evitei modelagem além do escopo.** Questionei a inclusão generalizada de `is_active` em produtos, funis, afiliados e status porque o enunciado não exigia esse ciclo de vida. Simplifiquei os modelos e regenerei migrations que ainda estavam em elaboração, em vez de acrescentar outra revision só para desfazer complexidade desnecessária.
+- **Questionei o teste de concorrência.** Uma execução com várias threads, por si só, não prova disputa simultânea. Pedi uma barreira de sincronização (`Barrier`) e evidência de transações efetivamente esperando o advisory lock do PostgreSQL; o teste de integração passou a verificar essa contenção.
+- **Confrontei o LAB com o banco.** Ao observar resultados positivos na interface sem os registros esperados no PostgreSQL, sinalizei falsos positivos e exigi checagens do HTTP, da idempotência e dos efeitos reais, em vez de confiar apenas na indicação visual de sucesso.
+- **Refatorei para facilitar a explicação.** Pedi que a lógica do dispatcher deixasse de concentrar lock, contagens e escolha do destino numa função extensa. O código foi separado em funções com nomes descritivos, como `lock_call_center_distribution`, `count_leads_by_call_center` e `select_call_center`.
+- **Controlei a complexidade do frontend.** Questionei soluções e abstrações que não ajudavam o desafio, preferi organização por features e corrigi interpretações literais demais de analogias usadas para descrever interações da interface.
+
+**Como validei:** inspecionei diffs e queries, confrontei o LAB com o PostgreSQL e executei testes automatizados (incluindo concorrência e idempotência), migrations em ambiente isolado e verificações de build. O histórico de commits registra a evolução incremental e as correções. As conversas com o Codex foram usadas como apoio, não como evidência de que algo funcionava.
+
+Não utilizei arquivos persistentes de instruções como `AGENTS.md` ou `CLAUDE.md`. Por isso não criei esses arquivos retroativamente; registro aqui as decisões relevantes e mantenho no Git os artefatos de desenvolvimento efetivamente utilizados.
 
 ## Visão geral
 
