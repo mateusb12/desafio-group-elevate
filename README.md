@@ -75,18 +75,27 @@ A unicidade da chave é garantida no banco. Um `pg_advisory_xact_lock` derivado 
 ## 9. Banco de dados
 
 - [x] Persistir contatos, leads, call centers, usuários e histórico de eventos.
-- [ ] Versionar alterações do schema com migrations.
-- [ ] Avaliar modelagem relacional própria para Product, Funnel, Affiliate e Distribution, conforme o PDF.
+- [x] Versionar alterações do schema com migrations.
+- [x] Modelar Product, Funnel, ProductFunnel, Affiliate, LeadStatus e Distribution como entidades relacionais.
 
 Principais tabelas:
 
 - `contacts`: representa a pessoa.
-- `leads`: mantém produto, funil, afiliado, origem, destino e status atual.
+- `products`: catálogo de produtos ativos e históricos.
+- `funnels`: catálogo de funis ativos e históricos.
+- `product_funnels`: associações N:N ativas entre produtos e funis.
+- `affiliates`: afiliados externos, criados transacionalmente quando aparecem pela primeira vez.
+- `lead_statuses`: catálogo dos status aceitos por leads e eventos.
+- `leads`: mantém referências de produto, funil, afiliado, origem, destino e status atual.
 - `call_centers`: guarda os pesos de distribuição.
 - `events`: armazena o histórico.
+- `distributions`: histórico de cada atribuição, incluindo a distribuição inicial.
 - `users`: armazena os perfis.
 
-**Estado atual e simplificação consciente:** `Product`, `Funnel`, `Affiliate` e `Distribution` ainda não existem como entidades/tabelas próprias. Produto, funil e afiliado são campos em `leads`, e a distribuição é representada diretamente por `leads.call_center_id`.
+O schema é versionado pelas revisions Alembic 001–007. A revisão 002 cria o catálogo
+de produtos; as revisions 003–007 adicionam funis, associações produto/funil,
+afiliados, status e histórico de distribuições. `leads.call_center_id` continua
+representando o destino atual, enquanto `distributions` preserva o histórico.
 
 ## 10. Índices
 
@@ -104,6 +113,7 @@ Há apenas índices básicos declarados no modelo, além dos índices implícito
 - `events.lead_id` (`index=True`);
 - `leads.idempotency_key` (UNIQUE);
 - `events (lead_id, external_id)` (UNIQUE).
+- `distributions (lead_id, assigned_at)` para histórico de atribuições.
 
 ## 11. Escalabilidade do banco
 
@@ -165,6 +175,11 @@ O dispatcher:
 - `event_at` com timezone (`timestamp` no exemplo do PDF; escolhi `event_at` para indicar o horário do acontecimento).
 
 Status aceitos: `new`, `contacted`, `no_answer`, `callback`, `qualified`, `sale`, `refund`, `invalid`.
+
+Os catálogos podem ser consultados por `GET /api/products`, `GET /api/funnels` e
+`GET /api/product-funnels`. O recebimento aceita somente produtos, funis e
+associações ativos; afiliados externos inéditos são cadastrados na mesma
+transação do lead.
 
 O evento é registrado no histórico e pode atualizar o status atual.
 

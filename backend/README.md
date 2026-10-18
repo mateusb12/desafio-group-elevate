@@ -47,11 +47,21 @@ O `alembic.ini` fica em `backend/` e os scripts ficam em
 `backend/migrations/`; as dependências continuam declaradas no
 `pyproject.toml`, que é o local correto para a instalação do pacote.
 
+As revisions atuais são encadeadas: 001 schema inicial, 002 produtos, 003 funis,
+004 associações produto/funil, 005 afiliados, 006 status e 007 distribuições.
+As migrations fazem backfill de referências legadas antes de criar as FKs.
+
 - `GET /` retorna `Hello, world!`
 - `GET /ping` retorna `{"status":"ok","message":"pong"}`
 - `POST /auth/login` autentica e cria o cookie JWT
 - `GET /auth/me` retorna o usuário do token atual
 - `POST /auth/logout` revoga o token atual
+- `GET /api/products`, `GET /api/funnels` e `GET /api/product-funnels` expõem os
+  catálogos ativos usados pelo LAB;
+- `POST /api/leads` valida a associação produto/funil ativa e registra a
+  distribuição inicial junto com o lead;
+- `POST /api/webhooks/callcenter` mantém o histórico de eventos e a atualização
+  ordenada do status atual.
 
 Variáveis relevantes:
 
