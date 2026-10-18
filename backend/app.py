@@ -9,6 +9,7 @@ from auth import auth_blueprint
 from auth.models import TokenBlocklist
 from auth.service import seed_demo_users
 from database import db_session
+from demo import reset_and_seed_demo
 from dispatcher import models as dispatcher_models  # noqa: F401
 from leads import leads_blueprint
 from leads.products import catalog_blueprint
@@ -54,8 +55,14 @@ def create_app() -> Flask:
 
 
 if os.getenv("SEED_DEMO") == "1":
-    with db_session() as database:
-        seed_demo_users(database)
+    if os.getenv("RESET_DEMO") == "1":
+        reset_and_seed_demo()
+    else:
+        from leads.products import seed_demo_catalog
+
+        with db_session() as database:
+            seed_demo_users(database)
+            seed_demo_catalog(database)
 
 app = create_app()
 

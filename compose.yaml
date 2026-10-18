@@ -29,6 +29,7 @@ services:
     build: ./backend
     environment:
       SEED_DEMO: "1"
+      RESET_DEMO: "${RESET_DEMO:-0}"
       PYTHONDONTWRITEBYTECODE: "1"
       DATABASE_URL: "postgresql+psycopg://elevate:elevate-local-only@db:5432/elevate"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:-local-demo-only-change-me-with-32-plus-bytes}"

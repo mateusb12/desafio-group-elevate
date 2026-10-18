@@ -16,6 +16,16 @@ Serviços disponíveis:
 
 Pare com `docker compose down`, sem apagar o volume.
 
+No ambiente local, `SEED_DEMO=1` mantém os usuários, centros, produtos, funis,
+associações e status demonstrativos disponíveis automaticamente. Para descartar
+os dados mockados e repopular tudo no próximo startup, use `RESET_DEMO=1`:
+
+```bash
+RESET_DEMO=1 docker compose up --build
+```
+
+Esse reset é destrutivo e serve somente para o banco local de demonstração.
+
 Contas demo (senha `demo123`): `admin@elevate.dev` (ADMIN), `ana@logicall.example` (Logicall), `bruno@salesbound.example` (Salesbound), `carla@atendemais.example` (AtendeMais). Não representam integrações reais.
 
 ## 5. Aplicação e arquitetura
