@@ -64,6 +64,9 @@ As migrations fazem backfill de referências legadas antes de criar as FKs.
   catálogos ativos usados pelo LAB;
 - `POST /api/leads` valida a associação produto/funil ativa e registra a
   distribuição inicial junto com o lead;
+- `GET /api/leads` lista leads com filtros `search`, `product`, `funnel`,
+  `source`, `callCenterId`, `status`, `from` e `to`, além de `page` e
+  `pageSize` para paginação;
 - `POST /api/webhooks/callcenter` mantém o histórico de eventos e a atualização
   ordenada do status atual.
 

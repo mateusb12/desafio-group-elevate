@@ -225,6 +225,44 @@ class AuthIntegrationTests(unittest.TestCase):
                 headers={"X-CSRF-TOKEN": csrf.value},
             )
 
+    def test_lead_filters_and_pagination(self):
+        marker = uuid4().hex
+        for index in range(3):
+            response = self.client.post(
+                '/api/leads',
+                json={
+                    'name': f'Filtro {index}',
+                    'email': f'{marker}-{index}@example.com',
+                    'phone': '+5585990000999',
+                    'product': 'nutralean',
+                    'funnel': 'vsl-01',
+                    'source': 'filter-test',
+                    'campaign': f'filter-test-{marker}',
+                    'affiliate_id': f'filter-affiliate-{marker}',
+                    'utm': {
+                        'source': 'filter-test',
+                        'medium': 'test',
+                        'campaign': f'filter-test-{marker}',
+                        'content': 'integration',
+                    },
+                },
+                headers={'Idempotency-Key': str(uuid4())},
+            )
+            self.assertEqual(response.status_code, 201, response.get_json())
+
+        self.assertEqual(self.login(email='admin@elevate.dev').status_code, 200)
+        response = self.client.get(
+            f'/api/leads?search={marker}&source=filter-test&page=2&pageSize=2'
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body['pagination']['page'], 2)
+        self.assertEqual(body['pagination']['pageSize'], 2)
+        self.assertEqual(body['pagination']['total'], 3)
+        self.assertEqual(body['pagination']['totalPages'], 2)
+        self.assertEqual(len(body['leads']), 1)
+        self.assertIn('filter-test', body['filters']['sources'])
+
     def test_inactive_user_cannot_login(self):
         from sqlalchemy import select
         from features.auth.models import User

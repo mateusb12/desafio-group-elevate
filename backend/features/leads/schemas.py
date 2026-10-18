@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator
 
 
@@ -27,6 +29,41 @@ class LeadInput(BaseModel):
     @classmethod
     def normalize_email(cls, value):
         return value.strip().lower() if isinstance(value, str) else value
+
+
+class LeadListQuery(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    search: str | None = None
+    product: str | None = None
+    funnel: str | None = None
+    source: str | None = None
+    call_center_id: str | None = Field(default=None, alias='callCenterId')
+    status: str | None = None
+    from_date: date | None = Field(default=None, alias='from')
+    to_date: date | None = Field(default=None, alias='to')
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=5, ge=1, le=100, alias='pageSize')
+
+    @field_validator(
+        'search', 'product', 'funnel', 'source', 'call_center_id', 'status',
+        mode='before',
+    )
+    @classmethod
+    def empty_string_to_none(cls, value):
+        return None if value == '' else value
+
+
+def validate_lead_list_query(query):
+    try:
+        return LeadListQuery.model_validate(query), None
+    except ValidationError as exc:
+        field = exc.errors()[0]['loc'][0]
+        if field in ('page', 'pageSize'):
+            return None, 'page e pageSize devem ser números inteiros válidos.'
+        if field in ('from', 'to'):
+            return None, 'As datas devem usar o formato AAAA-MM-DD.'
+        return None, 'Parâmetro de filtro inválido.'
 
 
 def validation_error_message(error: ValidationError, body) -> str:

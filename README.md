@@ -121,10 +121,10 @@ preservação dos registros e `alembic check` sem divergências.
 ## 10. Índices
 
 - [x] Manter índices básicos e constraints de integridade declarados no ORM.
-- [ ] Mapear as consultas reais e seus filtros/ordenação.
+- [x] Mapear as consultas reais e seus filtros/ordenação.
 - [ ] Medir planos de consulta com EXPLAIN ANALYZE.
 - [ ] Avaliar índices compostos com base nas medições.
-- [ ] Documentar a justificativa dos índices escolhidos.
+- [x] Documentar a justificativa dos índices escolhidos.
 
 Há apenas índices básicos declarados no modelo, além dos índices implícitos das PKs e constraints únicas:
 
@@ -135,6 +135,15 @@ Há apenas índices básicos declarados no modelo, além dos índices implícito
 - `leads.idempotency_key` (UNIQUE);
 - `events (lead_id, external_id)` (UNIQUE);
 - `distributions (lead_id, assigned_at)` para histórico de atribuições.
+
+As consultas principais são `GET /api/leads`, que filtra por busca, período,
+produto, funil, origem, call center e status, ordena por `received_at` e `id`
+e pagina no banco; `GET /api/dashboard/metrics`, que agrega leads por período
+e status; e a consulta do histórico de `distributions` por lead e data. Os
+índices de chaves estrangeiras apoiam os joins e filtros por relacionamento,
+as constraints UNIQUE evitam duplicidades e o índice composto de
+`distributions` apoia a ordenação do histórico por lead. Índices compostos
+adicionais só serão considerados depois de medir os planos reais.
 
 ## 11. Escalabilidade do banco
 
@@ -237,16 +246,16 @@ Controles da integração:
 - [x] Criar endpoint de métricas reais para o dashboard.
 - [x] Criar API de leitura e alteração dos pesos de distribuição.
 - [ ] Conectar a configuração de pesos ao backend, substituindo localStorage.
-- [ ] Implementar filtros no backend.
-- [ ] Implementar paginação no backend.
+- [x] Implementar filtros no backend.
+- [x] Implementar paginação no backend.
 - [ ] Criar consulta de detalhes e atualização de status para operadores.
 
 A lista consulta leads reais por `GET /api/leads`:
 
 - ADMIN vê todos os leads.
 - OPERATOR vê apenas os leads do próprio call center, **com restrição no backend**.
-- A tela oferece filtros por período, produto, funil, origem, centro e status, mas aplica todos localmente depois de carregar a lista completa.
-- A paginação também é local, com cinco itens por página.
+- A tela envia os filtros por período, produto, funil, origem, centro, status e busca para o backend.
+- A API aplica paginação no banco e devolve metadados com total de leads e páginas.
 
 ## 20–22. Autenticação, autorização e segurança
 
@@ -268,7 +277,8 @@ Controles implementados:
 - [x] Cobrir autenticação, validação, dispatcher e cenários concorrentes de webhook.
 - [x] Reexecutar os testes após as mudanças de idempotência e migrations 001–007.
 - [ ] Ampliar testes de autorização e isolamento por call center.
-- [ ] Adicionar testes das APIs de métricas, pesos, filtros e atendimento quando criadas.
+- [x] Adicionar testes das APIs de métricas, pesos e filtros.
+- [ ] Adicionar testes de atendimento quando a atualização de status for criada.
 
 O LAB:
 
@@ -295,8 +305,7 @@ As suítes de integração também verificam concorrência real no PostgreSQL, i
 docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-As verificações de persistência usadas nos testes consultam diretamente o PostgreSQL. **Validação final das migrations 001–007 (18/10/2026):** 12 testes de integração, 5 de autenticação/autorização
-e 5 unitários passaram. Também foram validados 100 leads concorrentes (50/30/20),
+As verificações de persistência usadas nos testes consultam diretamente o PostgreSQL. **Validação final das migrations 001–007 (18/10/2026):** 20 testes backend passaram. Também foram validados 100 leads concorrentes (50/30/20),
 50 reenvios idempotentes (1 criação e 49 duplicatas), 20 requisições usando
 o mesmo afiliado (um único cadastro) e webhooks concorrentes/fora de ordem.
 O LAB consultou os catálogos reais, o Compose temporário inicializou

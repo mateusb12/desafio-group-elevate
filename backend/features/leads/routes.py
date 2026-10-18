@@ -1,10 +1,12 @@
 from flask import jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
+from datetime import datetime, timedelta, timezone
 
 from features.auth.models import User, UserRole
 from features.auth.permissions import admin_required
 from shared.database import db_session
+from shared.pagination import paginate_query
 from .idempotency import normalize_idempotency_key
 from features.dispatcher.models import CallCenter
 from . import leads_blueprint
@@ -14,7 +16,7 @@ from .models import (
     Lead,
 )
 from pydantic import ValidationError
-from .schemas import LeadInput, validation_error_message
+from .schemas import LeadInput, validate_lead_list_query, validation_error_message
 
 def validate_lead(body):
     try:
@@ -23,6 +25,58 @@ def validate_lead(body):
         return clean, None
     except ValidationError as exc:
         return None, validation_error_message(exc, body)
+
+
+def create_leads_base_query():
+    return (
+        select(Lead, Contact, CallCenter)
+        .join(Contact, Lead.contact_id == Contact.id)
+        .outerjoin(CallCenter, Lead.call_center_id == CallCenter.id)
+        .order_by(Lead.received_at.desc(), Lead.id.desc())
+    )
+
+
+def apply_frontend_filters_to_leads_query(
+    query,
+    frontend_filters,
+):
+    if frontend_filters.search:
+        search_term = f'%{frontend_filters.search}%'
+        query = query.where(or_(
+            Lead.id.ilike(search_term),
+            Contact.name.ilike(search_term),
+            Contact.email.ilike(search_term),
+            Contact.phone.ilike(search_term),
+        ))
+    if frontend_filters.product:
+        query = query.where(Lead.product == frontend_filters.product)
+    if frontend_filters.funnel:
+        query = query.where(Lead.funnel == frontend_filters.funnel)
+    if frontend_filters.source:
+        query = query.where(Lead.source == frontend_filters.source)
+    if frontend_filters.call_center_id:
+        query = query.where(
+            Lead.call_center_id == frontend_filters.call_center_id
+        )
+    if frontend_filters.status:
+        query = query.where(Lead.status == frontend_filters.status)
+
+    if frontend_filters.from_date:
+        start = datetime.combine(
+            frontend_filters.from_date,
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        query = query.where(Lead.received_at >= start)
+    if frontend_filters.to_date:
+        end = datetime.combine(
+            frontend_filters.to_date,
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        query = query.where(Lead.received_at < end + timedelta(days=1))
+
+    return query
 
 
 @leads_blueprint.post('')
@@ -65,22 +119,80 @@ def list_leads():
         if user is None:
             return jsonify(error='Acesso não autorizado.'), 403
 
-        query = (
-            select(Lead, Contact, CallCenter)
-            .join(Contact, Lead.contact_id == Contact.id)
-            .outerjoin(CallCenter, Lead.call_center_id == CallCenter.id)
-            .order_by(Lead.received_at.desc(), Lead.id.desc())
+        frontend_filters, validation_error = validate_lead_list_query(
+            request.args.to_dict()
         )
+        if validation_error:
+            return jsonify(error=validation_error), 400
 
+        user_visibility_filters = []
         if user.role == UserRole.OPERATOR:
             if not user.call_center_id:
-                return jsonify(leads=[])
+                return jsonify(
+                    leads=[],
+                    filters={
+                        'products': [],
+                        'funnels': [],
+                        'sources': [],
+                        'callCenters': [],
+                    },
+                    pagination={
+                        'page': frontend_filters.page,
+                        'pageSize': frontend_filters.page_size,
+                        'total': 0,
+                        'totalPages': 0,
+                    },
+                )
 
-            query = query.where(
+            user_visibility_filters.append(
                 Lead.call_center_id == user.call_center_id
             )
 
-        rows = db.execute(query).all()
+        leads_query_without_filters = create_leads_base_query()
+        leads_query_with_frontend_filters = (
+            apply_frontend_filters_to_leads_query(
+                leads_query_without_filters,
+                frontend_filters,
+            )
+        )
+        leads_query_with_frontend_and_user_visibility_filters = (
+            leads_query_with_frontend_filters.where(
+                *user_visibility_filters
+            )
+        )
+
+        products = db.scalars(
+            select(Lead.product)
+            .where(*user_visibility_filters)
+            .distinct()
+            .order_by(Lead.product)
+        ).all()
+        funnels = db.scalars(
+            select(Lead.funnel)
+            .where(*user_visibility_filters)
+            .distinct()
+            .order_by(Lead.funnel)
+        ).all()
+        sources = db.scalars(
+            select(Lead.source)
+            .where(*user_visibility_filters)
+            .distinct()
+            .order_by(Lead.source)
+        ).all()
+        call_centers = db.execute(
+            select(CallCenter.id, CallCenter.name)
+            .join(Lead, Lead.call_center_id == CallCenter.id)
+            .where(*user_visibility_filters)
+            .distinct()
+            .order_by(CallCenter.name)
+        ).all()
+
+        rows, pagination = paginate_query(
+            db,
+            leads_query_with_frontend_and_user_visibility_filters,
+            frontend_filters.page,
+            frontend_filters.page_size,
+        )
 
         leads = [
             {
@@ -100,7 +212,19 @@ def list_leads():
             for lead, contact, center in rows
         ]
 
-    return jsonify(leads=leads)
+    return jsonify(
+        leads=leads,
+        filters={
+            'products': products,
+            'funnels': funnels,
+            'sources': sources,
+            'callCenters': [
+                {'id': center_id, 'name': center_name}
+                for center_id, center_name in call_centers
+            ],
+        },
+        pagination=pagination,
+    )
 
 
 @leads_blueprint.get('/lab')

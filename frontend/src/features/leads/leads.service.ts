@@ -1,4 +1,4 @@
-import type { Lead, LeadStatus } from './leads.types'
+import type { Lead, LeadFacets, LeadFilters, LeadStatus, LeadsPage } from './leads.types'
 
 export const statusLabels: Record<LeadStatus, string> = {
   new: 'Novo',
@@ -11,14 +11,20 @@ export const statusLabels: Record<LeadStatus, string> = {
   invalid: 'Inválido',
 }
 
-export async function listLeads(): Promise<Lead[]> {
+export async function listLeads(filters: LeadFilters, page: number, pageSize: number): Promise<LeadsPage & { filters: LeadFacets }> {
   // O proxy Vite remove o primeiro /api.
-  const response = await fetch('/api/api/leads', {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) query.set(key, value)
+  })
+  const response = await fetch(`/api/api/leads?${query.toString()}`, {
     credentials: 'same-origin',
   })
 
   const body = await response.json() as {
     leads?: Lead[]
+    filters?: LeadFacets
+    pagination?: LeadsPage['pagination']
     error?: string
   }
 
@@ -26,9 +32,9 @@ export async function listLeads(): Promise<Lead[]> {
     throw new Error(body.error ?? 'Não foi possível carregar os leads.')
   }
 
-  if (!Array.isArray(body.leads)) {
+  if (!Array.isArray(body.leads) || !body.filters || !body.pagination) {
     throw new Error('Resposta inválida da API de leads.')
   }
 
-  return body.leads
+  return { leads: body.leads, filters: body.filters, pagination: body.pagination }
 }
