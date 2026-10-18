@@ -25,16 +25,11 @@ cd backend
 DATABASE_URL=postgresql+psycopg://elevate:elevate-local-only@localhost:5433/elevate uv run alembic upgrade head
 ```
 
-Se o banco já existia antes da adoção do Alembic e foi criado pelo
-`create_all`, não execute a migration inicial diretamente: confirme primeiro
-que o schema está compatível e marque a revisão atual como aplicada:
-
-```bash
-DATABASE_URL=postgresql+psycopg://elevate:elevate-local-only@localhost:5433/elevate uv run alembic stamp head
-```
-
-Esse comando é apenas para a transição da base legada. Em bases novas, use
-`upgrade head`.
+Se o banco foi criado anteriormente com `create_all`, **não use `stamp head`
+indiscriminadamente**: `stamp` só registra uma versão no Alembic e não executa
+DDL nem migra os dados. Verifique primeiro a correspondência entre o schema
+presente e a revision que será marcada. Uma base legada com dados requer uma
+estratégia própria de migração antes das FKs. Em bases novas, use `upgrade head`.
 
 Para criar uma migration após alterar os modelos:
 
@@ -48,7 +43,7 @@ O `alembic.ini` fica em `backend/` e os scripts ficam em
 
 As revisions atuais são encadeadas: 001 schema inicial, 002 produtos, 003 funis,
 004 associações produto/funil, 005 afiliados, 006 status e 007 distribuições.
-As migrations fazem backfill de referências legadas antes de criar as FKs.
+As revisions atuais não incluem backfill dos dados legados: em bases novas, `SEED_DEMO=1` insere os dados de demonstração após as migrations. Para bases com registros anteriores, planeje o backfill antes de aplicar as FKs.
 
 - `GET /` retorna `Hello, world!`
 - `GET /ping` retorna `{"status":"ok","message":"pong"}`
@@ -61,8 +56,8 @@ As migrations fazem backfill de referências legadas antes de criar as FKs.
 - `PUT /api/dispatcher/weights` atualiza todos os pesos atomicamente, somente
   para administradores, exigindo soma de 100%;
 - `GET /api/products`, `GET /api/funnels` e `GET /api/product-funnels` expõem os
-  catálogos ativos usados pelo LAB;
-- `POST /api/leads` valida a associação produto/funil ativa e registra a
+  catálogos usados pelo LAB;
+- `POST /api/leads` valida a associação produto/funil cadastrada e registra a
   distribuição inicial junto com o lead;
 - `GET /api/leads` lista leads com filtros `search`, `product`, `funnel`,
   `source`, `callCenterId`, `status`, `from` e `to`, além de `page` e

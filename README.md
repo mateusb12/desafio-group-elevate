@@ -55,13 +55,13 @@ Stack e fluxo principal:
 Validações e respostas:
 
 - Pydantic valida tipos, formatos e campos obrigatórios.
-- Produto, funil e a combinação entre ambos são validados nos catálogos do PostgreSQL; somente registros ativos são aceitos.
+- Produto, funil e a combinação entre ambos são validados pelos catálogos e relacionamentos do PostgreSQL.
 - O e-mail normalizado identifica o contato.
 - Cada lead recebe ID e horário próprios.
 - Dados inválidos retornam `400`.
 - Content-Type inadequado retorna `415`.
 
-Os catálogos ativos estão disponíveis em `GET /api/products`, `GET /api/funnels` e
+Os catálogos estão disponíveis em `GET /api/products`, `GET /api/funnels` e
 `GET /api/product-funnels`. Afiliados externos inéditos são cadastrados
 transacionalmente ao receber o lead.
 
@@ -96,9 +96,9 @@ A unicidade da chave é garantida no banco. Um `pg_advisory_xact_lock` derivado 
 Principais tabelas:
 
 - `contacts`: representa a pessoa.
-- `products`: catálogo de produtos ativos e históricos.
-- `funnels`: catálogo de funis ativos e históricos.
-- `product_funnels`: associações N:N ativas entre produtos e funis.
+- `products`: catálogo dos produtos cadastrados.
+- `funnels`: catálogo dos funis cadastrados.
+- `product_funnels`: associações N:N entre produtos e funis.
 - `affiliates`: afiliados externos, criados transacionalmente quando aparecem pela primeira vez.
 - `lead_statuses`: catálogo dos status aceitos por leads e eventos.
 - `leads`: mantém referências de produto, funil, afiliado, origem, destino e status atual.
@@ -113,10 +113,13 @@ de produtos; as revisions 003–007 adicionam funis, associações produto/funil
 afiliados, status e histórico de distribuições. `leads.call_center_id` continua
 representando o destino atual, enquanto `distributions` preserva o histórico.
 
-**Estado validado:** 12 tabelas de aplicação, além de `alembic_version`;
-32 constraints (14 FKs, 13 PKs, 4 UNIQUE e 1 CHECK) e 23 índices.
-A validação foi feita em PostgreSQL descartável com dados legados,
-preservação dos registros e `alembic check` sem divergências.
+O modelo atual possui **12 tabelas de aplicação**, além de `alembic_version`.
+As revisions Alembic atuais criam as tabelas e constraints; o seed local (`SEED_DEMO=1`)
+povoa os catálogos depois de aplicar as migrations. **As revisions regeneradas não
+incluem backfill de dados legados.** Para atualizar uma base com dados anteriores,
+é necessário planejar a migração desses registros antes de acrescentar as FKs.
+Os números de constraints e os testes com backfill divulgados anteriormente
+referiam-se à versão anterior das revisions e precisam ser revalidados.
 
 ## 10. Índices
 
@@ -278,8 +281,8 @@ Controles implementados:
 ## 23. Testes e LAB
 
 - [x] Cobrir autenticação, validação, dispatcher e cenários concorrentes de webhook.
-- [x] Reexecutar os testes após as mudanças de idempotência e migrations 001–007.
-- [ ] Ampliar testes de autorização e isolamento por call center.
+- [ ] Reexecutar a suíte completa após a regeneração das migrations e os últimos fluxos de atendimento.
+- [x] Testar bloqueio de leitura e alteração de leads de outro call center.
 - [x] Adicionar testes das APIs de métricas, pesos e filtros.
 - [x] Adicionar testes de detalhe, atualização de status e isolamento por call center.
 
@@ -293,7 +296,7 @@ Os testes existentes cobrem:
 
 - Autenticação;
 - Validação;
-- Persistência e backfill de dados legados;
+- Persistência e integridade referencial;
 - Validação de produtos, funis e associações;
 - Afiliados criados concorrentemente sem duplicação;
 - Histórico de distribuições por lead;
@@ -308,16 +311,14 @@ As suítes de integração também verificam concorrência real no PostgreSQL, i
 docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-As verificações de persistência usadas nos testes consultam diretamente o PostgreSQL. **Validação final das migrations 001–007 (18/10/2026):** 20 testes backend passaram. Também foram validados 100 leads concorrentes (50/30/20),
-50 reenvios idempotentes (1 criação e 49 duplicatas), 20 requisições usando
-o mesmo afiliado (um único cadastro) e webhooks concorrentes/fora de ordem.
-O LAB consultou os catálogos reais, o Compose temporário inicializou
-o backend após as migrations e `/ping` respondeu 200. Build do frontend aprovado;
-lint sem erros, com 1 warning preexistente em `LabWebhooksPage.tsx`.
-Os recursos Docker temporários foram descartados.
+Em uma rodada anterior (18/10/2026), passaram 20 testes backend,
+além dos testes específicos de 100 leads concorrentes (50/30/20),
+50 reenvios idempotentes, criação concorrente de afiliados e webhooks.
+**Esses resultados antecedem a regeneração das migrations e os últimos commits**;
+a execução completa no estado atual ainda precisa ser confirmada.
 
-**Ainda pendente:** ampliar a suíte conforme surgirem as APIs de dashboard,
-pesos, filtros e atendimento; reforçar cenários de isolamento por call center.
+**Ainda pendente:** revalidar o schema atual a partir de um PostgreSQL vazio,
+executar toda a suíte de regressão e cobrir eventuais condições limite.
 
 ## 27–28. Priorização, limitações e stack
 
@@ -339,7 +340,7 @@ Evitei infraestrutura extra sem necessidade comprovada.
 
 - [x] Documentar decisões, correções, limitações e validações realizadas com IA.
 
-Usei ChatGPT para discutir alternativas, revisar código e construir testes. Exemplos em que **revisei ou corrigi a saída**:
+Usei ChatGPT e Codex para discutir alternativas, implementar mudanças, revisar código e construir testes. Exemplos em que **revisei ou corrigi a saída**:
 
 - Migrei de SQLite para PostgreSQL para coordenar operações concorrentes.
 - Comparei sessões Flask e JWT, escolhendo Flask-JWT-Extended em vez de implementar autenticação própria.
@@ -348,7 +349,7 @@ Usei ChatGPT para discutir alternativas, revisar código e construir testes. Exe
 - Encontrei no LAB uma regressão da validação Pydantic: produtos/funis inexistentes eram aceitos. Corrigi e acrescentei regressão.
 - Verifiquei resultados no PostgreSQL, além dos testes e do build Docker.
 
-A IA acelerou o trabalho, mas não foi tratada como validação. Os artefatos de instruções/planos devem acompanhar o histórico Git (item 25).
+A IA acelerou o trabalho, mas não foi tratada como validação. Não utilizei arquivos persistentes de instrução como `AGENTS.md` ou `CLAUDE.md`; não criei arquivos retroativos apenas para cumprir o item 25. As decisões e revisões ficam no histórico Git e nesta documentação.
 
 ## Visão geral
 
