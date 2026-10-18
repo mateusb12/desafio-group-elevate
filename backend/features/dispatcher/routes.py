@@ -1,5 +1,3 @@
-import math
-
 from flask import jsonify, request
 from flask_jwt_extended import jwt_required
 from sqlalchemy import select
@@ -9,7 +7,7 @@ from shared.database import db_session
 
 from . import dispatcher_blueprint
 from .models import CallCenter
-
+from .schemas import validate_weights
 
 def serialize_call_center(call_center: CallCenter) -> dict[str, str | float]:
     return {
@@ -17,40 +15,6 @@ def serialize_call_center(call_center: CallCenter) -> dict[str, str | float]:
         "name": call_center.name,
         "percentage": call_center.distribution_weight,
     }
-
-
-def parse_allocations(body):
-    if not isinstance(body, dict) or not isinstance(body.get("allocations"), list):
-        return None, "Envie allocations como uma lista."
-
-    allocations = body["allocations"]
-    if not allocations:
-        return None, "Informe pelo menos um call center."
-
-    parsed = []
-    seen_ids = set()
-    for item in allocations:
-        if not isinstance(item, dict):
-            return None, "Cada alocação deve ser um objeto."
-
-        center_id = item.get("id")
-        percentage = item.get("percentage")
-        if not isinstance(center_id, str) or not center_id.strip():
-            return None, "Cada alocação precisa de um id válido."
-        if isinstance(percentage, bool) or not isinstance(percentage, (int, float)):
-            return None, "Cada porcentagem precisa ser numérica."
-        if not math.isfinite(percentage) or percentage < 0:
-            return None, "As porcentagens não podem ser negativas ou inválidas."
-        if center_id in seen_ids:
-            return None, "Não repita o mesmo call center."
-
-        seen_ids.add(center_id)
-        parsed.append((center_id, float(percentage)))
-
-    if not math.isclose(sum(percentage for _, percentage in parsed), 100.0, abs_tol=1e-6):
-        return None, "A soma das porcentagens precisa ser igual a 100%."
-
-    return parsed, None
 
 
 @dispatcher_blueprint.get("/weights")
@@ -71,7 +35,7 @@ def get_weights():
 @admin_required
 def update_weights():
     with db_session() as db:
-        allocations, validation_error = parse_allocations(request.get_json(silent=True))
+        allocations, validation_error = validate_weights(request.get_json(silent=True))
         if validation_error:
             return jsonify(error=validation_error), 400
 

@@ -32,12 +32,12 @@ def _admin_error(db: Session, forbidden_message: str):
 
 
 def require_admin(db: Session, forbidden_message: str = "Acesso restrito a administradores."):
-    """Run the administrator policy for flows that cannot use a decorator."""
+    """Aplica a regra de admin nos fluxos que não usam decorator."""
     return _admin_error(db, forbidden_message)
 
 
 def admin_required(view=None, *, forbidden_message: str = "Acesso restrito a administradores."):
-    """Protect an endpoint with the application's administrator policy."""
+    """Exige que o endpoint seja acessado por um admin."""
     def decorator(function):
         @wraps(function)
         def wrapped(*args, **kwargs):

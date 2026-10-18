@@ -11,21 +11,19 @@ from shared.database import db_session
 from . import auth_blueprint
 from .models import TokenBlocklist
 from .permissions import current_user
+from .schemas import validate_login
 from .service import authenticate, user_payload
 
 
 @auth_blueprint.post("/login")
 def login():
     body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(error="JSON inválido."), 400
-    email = str(body.get("email", "")).strip().lower()
-    password = body.get("password")
-    if not email or not isinstance(password, str) or not password:
-        return jsonify(error="E-mail e senha são obrigatórios."), 400
+    login_input, validation_error = validate_login(body)
+    if validation_error:
+        return jsonify(error=validation_error), 400
 
     with db_session() as db:
-        user = authenticate(db, email, password)
+        user = authenticate(db, login_input.email, login_input.password)
         if user is None:
             return jsonify(error="E-mail ou senha inválidos."), 401
         response = jsonify(user=user_payload(db, user))
