@@ -17,6 +17,14 @@ class Contact(Base):
     phone: Mapped[str] = mapped_column(String(20), nullable=False)
 
 
+class Product(Base):
+    __tablename__ = 'products'
+
+    code: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+
 class Lead(Base):
     __tablename__ = 'leads'
 
@@ -31,7 +39,9 @@ class Lead(Base):
         String(36), ForeignKey('contacts.id'), nullable=False, index=True
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    product: Mapped[str] = mapped_column(String(80), nullable=False)
+    product: Mapped[str] = mapped_column(
+        String(80), ForeignKey('products.code', name='fk_leads_product'), nullable=False
+    )
     funnel: Mapped[str] = mapped_column(String(80), nullable=False)
     source: Mapped[str] = mapped_column(String(80), nullable=False)
     campaign: Mapped[str] = mapped_column(String(120), nullable=False)

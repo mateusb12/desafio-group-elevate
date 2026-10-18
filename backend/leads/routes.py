@@ -18,12 +18,11 @@ from .idempotency import (
 from dispatcher.service import choose_call_center
 from dispatcher.models import CallCenter
 from . import leads_blueprint
-from .models import Contact, Event, Lead
+from .models import Contact, Event, Lead, Product
 from pydantic import ValidationError
 from .schemas import LeadInput, validation_error_message
 
-# Catálogo mínimo para os cenários atuais do LAB; futuramente virá do banco.
-PRODUCTS = {'nutralean', 'curso-vendas', 'marketing-digital'}
+# A migration 003 levara os funis para um catalogo proprio.
 FUNNELS = {'vsl-01', 'webinar-02', 'checkout-03'}
 
 
@@ -31,8 +30,6 @@ def validate_lead(body):
     try:
         clean = LeadInput.model_validate(body).model_dump()
 
-        if clean['product'] not in PRODUCTS:
-            return None, 'Produto desconhecido.'
         if clean['funnel'] not in FUNNELS:
             return None, 'Funil desconhecido.'
 
@@ -82,6 +79,15 @@ def receive_lead():
                 status='new',
                 duplicate=True,
             ), 200
+
+        product_exists = db.scalar(
+            select(Product.code).where(
+                Product.code == clean['product'],
+                Product.is_active.is_(True),
+            )
+        )
+        if product_exists is None:
+            return jsonify(error='Produto desconhecido.'), 400
 
         contact_id = db.scalar(
             insert(Contact)

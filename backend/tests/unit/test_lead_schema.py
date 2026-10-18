@@ -46,23 +46,16 @@ class LeadSchemaTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 LeadInput.model_validate(payload)
 
-    def test_produto_e_funil_inexistentes(self):
+    def test_funil_inexistente(self):
         from leads.routes import validate_lead
 
-        scenarios = (
-            ('product', 'produto-inexistente', 'Produto desconhecido.'),
-            ('funnel', 'funil-inexistente', 'Funil desconhecido.'),
-        )
+        payload = self.example()
+        payload['funnel'] = 'funil-inexistente'
 
-        for field, value, expected in scenarios:
-            with self.subTest(field=field):
-                payload = self.example()
-                payload[field] = value
+        clean, error = validate_lead(payload)
 
-                clean, error = validate_lead(payload)
-
-                self.assertIsNone(clean)
-                self.assertEqual(error, expected)
+        self.assertIsNone(clean)
+        self.assertEqual(error, 'Funil desconhecido.')
 
     def test_utm_com_campo_invalido(self):
         payload = self.example()

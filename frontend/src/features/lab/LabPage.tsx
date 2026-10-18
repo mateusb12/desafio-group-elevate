@@ -1,6 +1,6 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { fakerPT_BR as faker } from '@faker-js/faker'
-import { csrfHeaders } from '../auth/auth.service'
+import { clearLabLeads as clearLabLeadsRequest, listProducts, submitLead, type LeadPayload } from './lab.service'
 
 type Scenario =
   | 'valid'
@@ -14,18 +14,6 @@ type Scenario =
   | 'duplicate'
   | 'mixed'
 
-type Utm = { source: string; medium: string; campaign: string; content: string }
-type LeadPayload = {
-  name?: string | number
-  email: string
-  phone: string
-  product: string
-  funnel: string
-  source: string
-  campaign: string
-  affiliate_id: string
-  utm: Utm | string
-}
 type PreviewLead = {
   payload: LeadPayload
   scenario: Scenario
@@ -49,7 +37,6 @@ const scenarios: { id: Scenario; label: string; description: string }[] = [
 ]
 const selectableScenarios: Scenario[] = ['valid', 'mixed']
 
-const products = ['nutralean', 'curso-vendas', 'marketing-digital']
 const funnels = ['vsl-01', 'webinar-02', 'checkout-03']
 const sources = ['facebook', 'instagram', 'google', 'youtube']
 const issueScenarios: Scenario[] = [
@@ -57,7 +44,7 @@ const issueScenarios: Scenario[] = [
   'unknown-product', 'unknown-funnel', 'invalid-utm', 'invalid-types',
 ]
 
-function randomLead(): LeadPayload {
+function randomLead(products: string[]): LeadPayload {
   const name = faker.person.fullName()
   const [firstName, ...lastName] = name.split(' ')
   const source = faker.helpers.arrayElement(sources)
@@ -82,8 +69,8 @@ function randomLead(): LeadPayload {
   }
 }
 
-function leadForScenario(scenario: Scenario): PreviewLead {
-  const lead = randomLead()
+function leadForScenario(scenario: Scenario, products: string[]): PreviewLead {
+  const lead = randomLead(products)
   switch (scenario) {
     case 'invalid-email': lead.email = 'email-sem-arroba'; break
     case 'invalid-phone': lead.phone = '123'; break
@@ -123,6 +110,8 @@ function resultPresentation(scenario: Scenario, index: number, ok: boolean) {
 
 export function LabPage() {
   const [quantity, setQuantity] = useState(5)
+  const [products, setProducts] = useState<string[]>([])
+  const [productsError, setProductsError] = useState('')
   const [scenario, setScenario] = useState<Scenario>('valid')
   const [leads, setLeads] = useState<PreviewLead[]>([])
   const [notice, setNotice] = useState('')
@@ -139,10 +128,27 @@ export function LabPage() {
   })), null, 2), [leads, results])
   const selected = scenarios.find((item) => item.id === scenario)!
 
+  useEffect(() => {
+    let cancelled = false
+    void listProducts()
+      .then((codes) => {
+        if (!codes.length) throw new Error('Nao ha produtos ativos cadastrados.')
+        if (!cancelled) setProducts(codes)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setProductsError(error instanceof Error ? error.message : 'Erro no catalogo.')
+      })
+    return () => { cancelled = true }
+  }, [])
+
   function generate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!products.length) {
+      setNotice(productsError || 'Aguardando catalogo de produtos.')
+      return
+    }
     const amount = Math.min(100, Math.max(1, quantity))
-    const repeated = scenario === 'duplicate' ? randomLead() : null
+    const repeated = scenario === 'duplicate' ? randomLead(products) : null
     const repeatedKey = repeated ? crypto.randomUUID() : null
     const generated = Array.from({ length: amount }, (_, index) => repeated
       ? {
@@ -150,7 +156,7 @@ export function LabPage() {
           scenario: 'duplicate' as const,
           idempotencyKey: repeatedKey!,
         }
-      : leadForScenario(scenario === 'mixed' ? issueScenarios[index % issueScenarios.length] : scenario))
+      : leadForScenario(scenario === 'mixed' ? issueScenarios[index % issueScenarios.length] : scenario, products))
     setLeads(generated)
     setResults({})
     setNotice(`${amount} lead(s) fictício(s) gerado(s).`)
@@ -178,39 +184,17 @@ export function LabPage() {
         const started = performance.now()
         let result: Result
         try {
-          // O Vite atual remove o primeiro /api antes de encaminhar ao Flask.
-          const response = await fetch('/api/api/leads', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-              'Content-Type': 'application/json',
-              'Idempotency-Key': item.idempotencyKey,
-            },
-            body: JSON.stringify(item.payload),
-          })
-          const text = await response.text()
-          let body: Record<string, unknown> = {}
-          try {
-            const parsed: unknown = JSON.parse(text)
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-              body = parsed as Record<string, unknown>
-            }
-          } catch { /* Respostas não JSON também aparecem como falha na tabela. */ }
-
-          const id = typeof body.id === 'string' ? body.id : undefined
+          const response = await submitLead(item.payload, item.idempotencyKey)
+          const id = response.id
           const invalid = item.scenario !== 'valid' && item.scenario !== 'duplicate'
-          let ok = invalid
-            ? response.status === 400
-            : (response.status === 201 || response.status === 200) && !!id
+          let ok = invalid ? response.status === 400 : (response.status === 201 || response.status === 200) && !!id
 
           if (item.scenario === 'duplicate') {
             if (firstDuplicateId === undefined) firstDuplicateId = id
             else ok = ok && response.status === 200 && id === firstDuplicateId
           }
 
-          const description = typeof body.error === 'string'
-            ? body.error
-            : id ?? (text.slice(0, 120) || 'Resposta sem detalhes')
+          const description = response.error ?? id ?? 'Resposta sem detalhes'
           result = { http: response.status, ok, ms: Math.round(performance.now() - started), detail: description }
         } catch (error) {
           result = {
@@ -238,14 +222,8 @@ export function LabPage() {
 
     setClearing(true)
     try {
-      const response = await fetch('/api/api/leads/lab', {
-        method: 'DELETE',
-        credentials: 'same-origin',
-        headers: csrfHeaders(),
-      })
-      const body = await response.json() as { deleted?: number; error?: string }
-      if (!response.ok) throw new Error(body.error ?? 'Não foi possível limpar os leads do LAB.')
-      setNotice(`${body.deleted ?? 0} lead(s) removido(s) do banco.`)
+      const deleted = await clearLabLeadsRequest()
+      setNotice(`${deleted} lead(s) removido(s) do banco.`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Não foi possível limpar os leads do LAB.')
     } finally {
@@ -290,7 +268,7 @@ export function LabPage() {
           </label>
           <p className="mt-2 min-h-10 text-xs leading-relaxed text-slate-500">{selected.description}</p>
 
-          <button disabled={sending} className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50" type="submit">
+          <button disabled={sending || products.length === 0} className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50" type="submit">
             Gerar leads fictícios
           </button>
           <button type="button" disabled={!leads.length || sending} onClick={() => void sendLeads()}
@@ -302,7 +280,8 @@ export function LabPage() {
             {clearing ? 'Limpando banco...' : 'Limpar leads do banco'}
           </button>
           <p className="mt-3 text-xs leading-relaxed text-slate-500">
-            Produto, funil, origem, campanha e afiliado são aleatórios.
+            Produtos reais do banco ({products.length} ativos). Funil, origem, campanha e afiliado são aleatórios.
+            {productsError && <span className="block text-rose-600">{productsError}</span>}
           </p>
         </form>
 
