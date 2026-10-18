@@ -5,6 +5,7 @@ from sqlalchemy import delete
 from features.auth.models import TokenBlocklist, User
 from shared.database import db_session
 from features.dispatcher.models import CallCenter
+from features.outbox.models import OutboxPendingDelivery
 from features.leads.models import (
     Affiliate,
     Contact,
@@ -20,6 +21,7 @@ from features.leads.models import (
 
 def reset_demo_data(db):
     for model in (
+        OutboxPendingDelivery,
         Distribution,
         Event,
         Lead,

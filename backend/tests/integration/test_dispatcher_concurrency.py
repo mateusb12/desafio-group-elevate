@@ -12,7 +12,8 @@ from sqlalchemy import delete, func, select, text
 
 from shared.database import db_session
 from features.dispatcher.models import CallCenter
-from features.leads.models import Contact, Event, Lead
+from features.leads.models import Contact, Distribution, Event, Lead
+from features.outbox.models import OutboxPendingDelivery
 
 
 URL = "http://127.0.0.1:5000/api/leads"
@@ -339,6 +340,14 @@ class TestDispatcherConcurrency(unittest.TestCase):
                 select(func.count(Event.id))
                 .where(Event.lead_id.in_(test_ids))
             )
+            pending_delivery_count = db.scalar(
+                select(func.count(OutboxPendingDelivery.id))
+                .join(
+                    Distribution,
+                    Distribution.id == OutboxPendingDelivery.distribution_id,
+                )
+                .where(Distribution.lead_id.in_(test_ids))
+            )
 
             contact_ids = {
                 lead.contact_id for lead in all_test_leads
@@ -348,6 +357,7 @@ class TestDispatcherConcurrency(unittest.TestCase):
         self.assertEqual(len(all_test_leads), 101)
         self.assertEqual(len(contact_ids), 101)
         self.assertEqual(event_count, 101)
+        self.assertEqual(pending_delivery_count, 101)
 
         print("✅ 50 envios produziram somente 1 lead.")
         print("✅ 101 leads, 101 contatos e 101 eventos iniciais.")

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from features.dispatcher.service import choose_call_center
+from features.outbox.models import OutboxPendingDelivery
 
 from .affiliates import get_or_create_affiliate
 from .idempotency import acquire_idempotency_lock, calculate_payload_hash
@@ -150,8 +151,9 @@ def create_lead(db: Session, clean_payload: dict, idempotency_key: str) -> LeadC
             **lead_data,
         ))
         db.flush()
+        distribution_id = str(uuid4())
         db.add(Distribution(
-            id=str(uuid4()),
+            id=distribution_id,
             lead_id=lead_id,
             call_center_id=call_center_id,
             assigned_at=received_at,
@@ -161,6 +163,18 @@ def create_lead(db: Session, clean_payload: dict, idempotency_key: str) -> LeadC
             lead_id=lead_id,
             status='new',
             event_at=datetime.now(timezone.utc),
+        ))
+        outbox_event_id = str(uuid4())
+        db.add(OutboxPendingDelivery(
+            id=outbox_event_id,
+            event_type='lead.distributed',
+            distribution_id=distribution_id,
+            payload={
+                'event_id': outbox_event_id,
+                'lead_id': lead_id,
+                'distribution_id': distribution_id,
+                'call_center_id': call_center_id,
+            },
         ))
 
     return LeadCreationResult(

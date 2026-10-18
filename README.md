@@ -70,6 +70,23 @@ Stack e fluxo principal:
 - A atribuição é persistida no banco.
 - Não há filas, Redis ou envio para call centers reais.
 
+### Evolução arquitetural: Outbox transacional
+
+O sistema também persiste a intenção de encaminhar cada distribuição na tabela
+`outbox_pending_deliveries`. Ela é diferente de `events`: `events` registra o
+histórico de status do lead, enquanto `outbox_pending_deliveries` registra uma
+entrega de integração que poderá ser processada futuramente por um publisher.
+
+O registro pendente é criado na mesma transação SQL do lead e da distribuição.
+Assim, uma falha reverte todas as partes juntas e não deixa uma distribuição
+sem a intenção correspondente de publicação. O payload contém somente os IDs
+do evento, lead, distribuição e call center; não inclui dados pessoais.
+
+Ainda não existe publicação em RabbitMQ, worker ou envio HTTP automático. Por
+isso, as novas entregas permanecem com `published_at = NULL`. A persistência da
+Outbox não garante exatamente uma entrega: quando o publisher for implementado,
+o consumidor precisará tratar possíveis duplicatas.
+
 ## 6–7. Recebimento e validação
 
 - [x] Receber, validar e persistir leads, incluindo rastreamento e respostas HTTP.

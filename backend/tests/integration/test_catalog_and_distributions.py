@@ -19,18 +19,19 @@ from features.leads.models import (
     Product,
     ProductFunnel,
 )
+from features.outbox.models import OutboxPendingDelivery
 
 
 BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:5000")
 
 
-def post_lead(payload):
+def post_lead(payload, idempotency_key=None):
     request = Request(
         f"{BASE_URL}/api/leads",
         data=json.dumps(payload).encode(),
         headers={
             "Content-Type": "application/json",
-            "Idempotency-Key": str(uuid4()),
+            "Idempotency-Key": idempotency_key or str(uuid4()),
         },
         method="POST",
     )
@@ -139,10 +140,40 @@ class CatalogAndDistributionIntegrationTests(unittest.TestCase):
             distributions = db.scalars(
                 select(Distribution).where(Distribution.lead_id.in_(lead_ids))
             ).all()
+            pending_deliveries = db.scalars(
+                select(OutboxPendingDelivery).where(
+                    OutboxPendingDelivery.distribution_id.in_(
+                        [distribution.id for distribution in distributions]
+                    )
+                )
+            ).all()
             leads = db.scalars(select(Lead).where(Lead.id.in_(lead_ids))).all()
 
         self.assertEqual(affiliate_count, 1)
         self.assertEqual(len(distributions), 2)
+        self.assertEqual(len(pending_deliveries), 2)
+        self.assertTrue(all(
+            delivery.event_type == 'lead.distributed'
+            for delivery in pending_deliveries
+        ))
+        self.assertTrue(all(
+            delivery.published_at is None
+            for delivery in pending_deliveries
+        ))
+        self.assertEqual(
+            {
+                (delivery.payload['lead_id'], delivery.payload['distribution_id'],
+                 delivery.payload['call_center_id'], delivery.payload['event_id'])
+                for delivery in pending_deliveries
+            },
+            {
+                (distribution.lead_id, distribution.id,
+                 distribution.call_center_id, delivery.id)
+                for distribution in distributions
+                for delivery in pending_deliveries
+                if delivery.distribution_id == distribution.id
+            },
+        )
         self.assertEqual(
             {distribution.lead_id for distribution in distributions},
             set(lead_ids),
@@ -184,9 +215,19 @@ class CatalogAndDistributionIntegrationTests(unittest.TestCase):
                     Distribution.lead_id.in_(lead_ids)
                 )
             )
+            pending_delivery_count = db.scalar(
+                select(func.count(OutboxPendingDelivery.id)).where(
+                    OutboxPendingDelivery.distribution_id.in_(
+                        select(Distribution.id).where(
+                            Distribution.lead_id.in_(lead_ids)
+                        )
+                    )
+                )
+            )
 
         self.assertEqual(affiliate_count, 1)
         self.assertEqual(distribution_count, len(lead_ids))
+        self.assertEqual(pending_delivery_count, len(lead_ids))
 
 
 if __name__ == "__main__":

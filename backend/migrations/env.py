@@ -7,6 +7,7 @@ from shared.database import Base, engine
 from features.auth import models as auth_models  # noqa: F401
 from features.dispatcher import models as dispatcher_models  # noqa: F401
 from features.leads import models as leads_models  # noqa: F401
+from features.outbox import models as outbox_models  # noqa: F401
 
 
 def run_migrations_online():
