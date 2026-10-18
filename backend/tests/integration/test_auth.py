@@ -139,6 +139,38 @@ class AuthIntegrationTests(unittest.TestCase):
         self.assertEqual(user["callCenterName"], "Salesbound")
         self.assertEqual(user["role"], "OPERATOR")
 
+    def test_dashboard_metrics_are_admin_only(self):
+        self.assertEqual(
+            self.client.get("/dashboard/metrics").status_code,
+            401,
+        )
+
+        self.assertEqual(
+            self.login().status_code,
+            200,
+        )
+        response = self.client.get("/dashboard/metrics")
+        self.assertEqual(response.status_code, 403)
+
+        self.client = self.app.test_client()
+        self.assertEqual(
+            self.login(email="admin@elevate.dev").status_code,
+            200,
+        )
+        response = self.client.get("/dashboard/metrics")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.get_json()),
+            {
+                "total",
+                "receivedToday",
+                "distributed",
+                "pending",
+                "sales",
+                "conversionRate",
+            },
+        )
+
     def test_inactive_user_cannot_login(self):
         from sqlalchemy import select
         from features.auth.models import User

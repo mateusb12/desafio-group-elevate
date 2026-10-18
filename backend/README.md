@@ -1,7 +1,7 @@
 # Backend
 
 API Flask organizada por fatias verticais. Cada contexto fica em `features/`
-(`auth/`, `leads/`, `dispatcher/` e `webhooks/`), enquanto `shared/` concentra
+(`auth/`, `dashboard/`, `leads/`, `dispatcher/` e `webhooks/`), enquanto `shared/` concentra
 somente infraestrutura e operações comuns, como banco e dados demo.
 
 ## Executar
@@ -55,6 +55,8 @@ As migrations fazem backfill de referências legadas antes de criar as FKs.
 - `POST /auth/login` autentica e cria o cookie JWT
 - `GET /auth/me` retorna o usuário do token atual
 - `POST /auth/logout` revoga o token atual
+- `GET /dashboard/metrics` retorna as métricas reais do dashboard para usuários
+  administradores;
 - `GET /api/products`, `GET /api/funnels` e `GET /api/product-funnels` expõem os
   catálogos ativos usados pelo LAB;
 - `POST /api/leads` valida a associação produto/funil ativa e registra a

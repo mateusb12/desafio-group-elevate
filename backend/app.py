@@ -9,6 +9,7 @@ from features.auth import auth_blueprint
 from features.auth.models import TokenBlocklist
 from features.auth.service import seed_demo_users
 from features.dispatcher import models as dispatcher_models  # noqa: F401
+from features.dashboard import dashboard_blueprint
 from features.leads import leads_blueprint
 from features.leads.products import catalog_blueprint
 from features.leads import models as leads_models  # noqa: F401
@@ -39,6 +40,7 @@ def create_app() -> Flask:
             ) is not None
 
     app.register_blueprint(auth_blueprint)
+    app.register_blueprint(dashboard_blueprint)
     app.register_blueprint(leads_blueprint)
     app.register_blueprint(catalog_blueprint)
     app.register_blueprint(webhooks_blueprint)

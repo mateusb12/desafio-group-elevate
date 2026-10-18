@@ -234,7 +234,7 @@ Controles da integração:
 ## 18–19. Dashboard, lista e filtros
 
 - [x] Listar leads reais com filtros e paginação demonstrativos no frontend.
-- [ ] Criar endpoint de métricas reais para o dashboard.
+- [x] Criar endpoint de métricas reais para o dashboard.
 - [ ] Criar API de leitura e alteração dos pesos de distribuição.
 - [ ] Conectar a configuração de pesos ao backend, substituindo localStorage.
 - [ ] Implementar filtros no backend.

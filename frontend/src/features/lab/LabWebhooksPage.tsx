@@ -3,7 +3,7 @@ import { csrfHeaders } from '../auth/auth.service'
 
 export function LabWebhooksPage() {
   const [leadIds, setLeadIds] = useState<string[]>([])
-  const [quantity, setQuantity] = useState(5)
+  const [quantity, setQuantity] = useState(100)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -63,7 +63,7 @@ export function LabWebhooksPage() {
             type="number"
             min={1}
             max={Math.max(1, leadIds.length)}
-            value={quantity}
+            value={Math.min(quantity, Math.max(1, leadIds.length))}
             onChange={(event) =>
               setQuantity(Math.max(1, Number(event.target.value) || 1))
             }
@@ -102,8 +102,6 @@ export function LabWebhooksPage() {
   )
 }
 
-type WebhookScenario = 'mixed' | 'duplicate' | 'out-of-order'
-
 type WebhookPayload = {
   lead_id: string
   external_id: string
@@ -124,7 +122,6 @@ type WebhookResult = {
 }
 
 function EventSimulator({ leadIds }: { leadIds: string[] }) {
-  const [scenario, setScenario] = useState<WebhookScenario>('mixed')
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState('')
   const [events, setEvents] = useState<WebhookResult[]>([])
@@ -154,24 +151,59 @@ function EventSimulator({ leadIds }: { leadIds: string[] }) {
     for (const [index, lead] of leadIds.entries()) {
       const t = base + index * 1000
 
-      if (scenario === 'duplicate') {
-        const item = make(lead, 'sale', t + 20_000)
-        batch.push(item, item)
-      } else if (scenario === 'out-of-order') {
-        batch.push(
-          make(lead, 'sale', t + 20_000),
-          make(lead, 'contacted', t + 10_000),
-        )
-      } else {
-        const sequence = index % 3 === 0
-          ? ['contacted', 'sale', 'refund']
-          : index % 3 === 1
-            ? ['no_answer', 'callback']
-            : ['contacted', 'qualified', 'sale']
-
-        sequence.forEach((status, position) => {
-          batch.push(make(lead, status, t + (position + 1) * 10_000))
-        })
+      // Uma única operação cobre os fluxos válidos, inválidos, duplicados e
+      // fora de ordem, deixando estados finais diferentes no dashboard.
+      switch (index % 8) {
+        case 0: {
+          const sale = make(lead, 'sale', t + 20_000)
+          batch.push(make(lead, 'contacted', t + 10_000), sale, sale)
+          break
+        }
+        case 1:
+          batch.push(
+            make(lead, 'no_answer', t + 10_000),
+            make(lead, 'callback', t + 20_000),
+          )
+          break
+        case 2:
+          batch.push(
+            make(lead, 'contacted', t + 10_000),
+            make(lead, 'qualified', t + 20_000),
+          )
+          break
+        case 3:
+          batch.push(
+            make(lead, 'contacted', t + 10_000),
+            make(lead, 'sale', t + 20_000),
+            make(lead, 'refund', t + 30_000),
+          )
+          break
+        case 4:
+          // A venda chega antes de um evento mais antigo: o segundo evento
+          // deve ser registrado, mas não pode rebaixar o status atual.
+          batch.push(
+            make(lead, 'sale', t + 30_000),
+            make(lead, 'contacted', t + 10_000),
+          )
+          break
+        case 5:
+          batch.push(
+            make(lead, 'invalid', t + 10_000),
+            // O segundo payload é rejeitado pela API e aparece no relatório.
+            make(lead, 'status-inexistente', t + 20_000),
+          )
+          break
+        case 6: {
+          const contacted = make(lead, 'contacted', t + 10_000)
+          batch.push(contacted, contacted, make(lead, 'no_answer', t + 20_000))
+          break
+        }
+        default:
+          batch.push(
+            make(lead, 'callback', t + 10_000),
+            make(lead, 'qualified', t + 30_000),
+            make(lead, 'contacted', t + 20_000),
+          )
       }
     }
 
@@ -235,7 +267,8 @@ function EventSimulator({ leadIds }: { leadIds: string[] }) {
       <h2 className="font-semibold">Simular eventos do call center</h2>
 
       <p className="mt-1 text-sm text-slate-500">
-        Envia requisições reais para POST /api/webhooks/callcenter.
+        Envia uma operação completa para POST /api/webhooks/callcenter, com
+        eventos válidos, inválidos, duplicados e fora de ordem.
       </p>
 
       <p className="mt-2 text-sm text-slate-500">
@@ -245,13 +278,9 @@ function EventSimulator({ leadIds }: { leadIds: string[] }) {
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <select
           aria-label="Cenário de webhooks"
-          value={scenario}
-          onChange={(event) => setScenario(event.target.value as WebhookScenario)}
           className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm dark:border-white/10 dark:bg-[#111827]"
         >
-          <option value="mixed">Eventos mistos (venda, reembolso etc.)</option>
-          <option value="duplicate">Mesmo evento duas vezes</option>
-          <option value="out-of-order">Fora de ordem (sale antes de contacted)</option>
+          <option>Operação completa (todos os cenários)</option>
         </select>
 
         <button
@@ -260,7 +289,7 @@ function EventSimulator({ leadIds }: { leadIds: string[] }) {
           disabled={sending || !leadIds.length}
           className="min-h-11 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white disabled:opacity-40"
         >
-          {sending ? 'Enviando...' : 'Enviar webhooks'}
+          {sending ? 'Gerando operação...' : 'Gerar operação demonstrativa'}
         </button>
       </div>
 

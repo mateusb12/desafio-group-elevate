@@ -33,16 +33,11 @@ const scenarios: { id: Scenario; label: string; description: string }[] = [
   { id: 'invalid-utm', label: 'UTM malformada', description: 'UTM como texto, em vez de objeto.' },
   { id: 'invalid-types', label: 'Tipos incorretos', description: 'Nome numérico em vez de texto.' },
   { id: 'duplicate', label: 'Leads duplicados', description: 'Repete exatamente o mesmo payload para testar idempotência.' },
-  { id: 'mixed', label: 'Cenários mistos', description: 'Mistura leads válidos e diferentes erros na mesma amostra.' },
+  { id: 'mixed', label: 'Operação completa', description: 'Mantém a quantidade final de leads e executa testes inválidos e de duplicidade em paralelo.' },
 ]
 const selectableScenarios: Scenario[] = ['valid', 'mixed']
 
 const sources = ['facebook', 'instagram', 'google', 'youtube']
-const issueScenarios: Scenario[] = [
-  'valid', 'invalid-email', 'invalid-phone', 'missing-name',
-  'unknown-product', 'unknown-funnel', 'invalid-utm', 'invalid-types',
-]
-
 function randomLead(catalog: LeadCatalog): LeadPayload {
   const name = faker.person.fullName()
   const [firstName, ...lastName] = name.split(' ')
@@ -96,23 +91,37 @@ function expectedForScenario(scenario: Scenario, index: number): Expected {
     case 'duplicate': return index === 0
       ? { http: 201, detail: 'ID criado' }
       : { http: 200, detail: 'Mesmo ID da primeira linha' }
-    case 'mixed': return { http: 400, detail: 'Varia conforme o cenário' }
+    case 'mixed': return { http: 201, detail: 'Lead criado após testes auxiliares' }
   }
 }
 
 function resultPresentation(scenario: Scenario, index: number, ok: boolean) {
   if (!ok) return { label: '✕ FALHOU', className: 'text-red-600' }
-  if (scenario === 'valid') return { label: '✓ ACEITO', className: 'text-emerald-600' }
+  if (scenario === 'valid' || scenario === 'mixed') return { label: '✓ ACEITO', className: 'text-emerald-600' }
   if (scenario === 'duplicate' && index > 0) return { label: '↺ DUPLICATA', className: 'text-sky-600' }
   if (scenario === 'duplicate') return { label: '✓ ACEITO', className: 'text-emerald-600' }
   return { label: '✓ REJEITADO COMO ESPERADO', className: 'text-amber-600' }
+}
+
+function invalidProbeFor(payload: LeadPayload, index: number): LeadPayload {
+  const probe = { ...payload }
+  switch (index % 7) {
+    case 0: probe.email = 'email-sem-arroba'; break
+    case 1: probe.phone = '123'; break
+    case 2: probe.product = 'produto-inexistente'; break
+    case 3: probe.funnel = 'funil-inexistente'; break
+    case 4: probe.utm = 'utm-invalida'; break
+    case 5: probe.name = 12345; break
+    default: delete probe.name
+  }
+  return probe
 }
 
 export function LabPage() {
   const [quantity, setQuantity] = useState(5)
   const [catalog, setCatalog] = useState<LeadCatalog>({ products: [], funnels: [], associations: [] })
   const [catalogError, setCatalogError] = useState('')
-  const [scenario, setScenario] = useState<Scenario>('valid')
+  const [scenario, setScenario] = useState<Scenario>('mixed')
   const [leads, setLeads] = useState<PreviewLead[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
@@ -152,13 +161,19 @@ export function LabPage() {
     const amount = Math.min(100, Math.max(1, quantity))
     const repeated = scenario === 'duplicate' ? randomLead(catalog) : null
     const repeatedKey = repeated ? crypto.randomUUID() : null
-    const generated = Array.from({ length: amount }, (_, index) => repeated
-      ? {
+    const generated = Array.from({ length: amount }, () => {
+      if (repeated) {
+        return {
           payload: repeated,
           scenario: 'duplicate' as const,
           idempotencyKey: repeatedKey!,
         }
-      : leadForScenario(scenario === 'mixed' ? issueScenarios[index % issueScenarios.length] : scenario, catalog))
+      }
+      if (scenario === 'mixed') {
+        return { ...leadForScenario('valid', catalog), scenario: 'mixed' as const }
+      }
+      return leadForScenario(scenario, catalog)
+    })
     setLeads(generated)
     setResults({})
     setNotice(`${amount} lead(s) fictício(s) gerado(s).`)
@@ -188,12 +203,24 @@ export function LabPage() {
         try {
           const response = await submitLead(item.payload, item.idempotencyKey)
           const id = response.id
-          const invalid = item.scenario !== 'valid' && item.scenario !== 'duplicate'
-          let ok = invalid ? response.status === 400 : (response.status === 201 || response.status === 200) && !!id
+          let ok = (response.status === 201 || response.status === 200) && !!id
+
+          if (item.scenario === 'mixed') {
+            const probe = await submitLead(
+              invalidProbeFor(item.payload, index),
+              crypto.randomUUID(),
+            )
+            ok = ok && probe.status === 400
+          }
 
           if (item.scenario === 'duplicate') {
             if (firstDuplicateId === undefined) firstDuplicateId = id
             else ok = ok && response.status === 200 && id === firstDuplicateId
+          }
+
+          if (item.scenario === 'mixed' && index % 7 === 6) {
+            const duplicate = await submitLead(item.payload, item.idempotencyKey)
+            ok = ok && duplicate.status === 200 && duplicate.id === id
           }
 
           const description = response.error ?? id ?? 'Resposta sem detalhes'
@@ -239,7 +266,7 @@ export function LabPage() {
         <p className="text-sm text-indigo-500">ADMIN / LAB</p>
         <h1 className="mt-1 text-2xl font-semibold">Laboratório de leads</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Gere entradas válidas, inválidas ou repetidas para experimentar a API conforme ela evolui.
+          Gere a quantidade final de leads desejada enquanto o LAB testa entradas válidas, inválidas e repetidas em segundo plano.
         </p>
       </div>
 
@@ -264,7 +291,7 @@ export function LabPage() {
             <select value={scenario} onChange={(event) => setScenario(event.target.value as Scenario)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-indigo-500 dark:border-white/10 dark:bg-[#111827]">
               {selectableScenarios.map((id) => {
                 const item = scenarios.find((scenarioItem) => scenarioItem.id === id)!
-                return <option key={item.id} value={item.id}>{item.label}</option>
+                return <option key={item.id} value={item.id}>{item.id === 'mixed' ? 'Operação completa (todos os cenários)' : item.label}</option>
               })}
             </select>
           </label>

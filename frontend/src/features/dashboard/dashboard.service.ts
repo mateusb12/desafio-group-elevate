@@ -1,6 +1,7 @@
 export type DashboardMetrics = { total: number; receivedToday: number; distributed: number; pending: number; sales: number; conversionRate: number }
 
 export async function getDashboardMetrics(): Promise<DashboardMetrics> {
-  await new Promise((resolve) => setTimeout(resolve, 250))
-  return { total: 1284, receivedToday: 42, distributed: 1198, pending: 86, sales: 173, conversionRate: 14.4 }
+  const response = await fetch('/api/dashboard/metrics', { credentials: 'same-origin' })
+  if (!response.ok) throw new Error('Não foi possível carregar as métricas.')
+  return response.json() as Promise<DashboardMetrics>
 }
