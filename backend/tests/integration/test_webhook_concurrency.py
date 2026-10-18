@@ -174,7 +174,7 @@ class TestWebhookConcurrency(unittest.TestCase):
             """))
 
     def wait_for_lead_lock_contention(self, expected_requests):
-        """Aguarda todas as requisições disputarem o lock do lead."""
+        """Aguarda todas as requisições disputarem o bloqueio do lead."""
         for _ in range(80):
             waiting_requests = self.count_requests_waiting_for_lead_lock()
             if waiting_requests >= expected_requests:

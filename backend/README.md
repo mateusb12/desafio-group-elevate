@@ -68,6 +68,21 @@ As revisions atuais não incluem backfill dos dados legados: em bases novas, `SE
 - `POST /api/webhooks/callcenter` mantém o histórico de eventos e a atualização
   ordenada do status atual.
 
+## Delivery Worker
+
+`python -m features.delivery_worker.worker` consome `lead.distributed` com
+`auto_ack=False`. O payload contém `event_id`, `lead_id`, `distribution_id` e
+`call_center_id`; o último seleciona o endpoint HTTP. O worker envia os IDs em
+`POST /leads`, usa timeout curto e retry exponencial durável, com dez tentativas
+por padrão e teto configurável. O `ack` acontece
+depois do HTTP 2xx e da gravação de `delivery_leads_to_call_centers.status=delivered`.
+
+Como RabbitMQ e HTTP não compartilham transação, a semântica é at-least-once.
+Uma redelivery consulta `delivery_leads_to_call_centers` por `event_id` e não reenvia evento já
+concluído. Os simuladores acrescentam uma barreira persistente em SQLite.
+Mensagens inválidas, erros HTTP permanentes e falhas após o limite de tentativas
+vão para `lead.distributed.invalid`.
+
 Variáveis relevantes:
 
 - `JWT_SECRET_KEY`: chave de assinatura, obrigatória fora do ambiente local;

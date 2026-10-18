@@ -1,10 +1,11 @@
-"""Reset e seed dos dados locais usados pelo modo demo."""
+"""Reinicialização e carga inicial dos dados locais usados pelo modo demonstração."""
 
 from sqlalchemy import delete
 
 from features.auth.models import TokenBlocklist, User
 from shared.database import db_session
 from features.dispatcher.models import CallCenter
+from features.delivery_worker.models import DeliveryLeadToCallCenter
 from features.outbox.models import OutboxPendingDelivery
 from features.leads.models import (
     Affiliate,
@@ -21,6 +22,7 @@ from features.leads.models import (
 
 def reset_demo_data(db):
     for model in (
+        DeliveryLeadToCallCenter,
         OutboxPendingDelivery,
         Distribution,
         Event,

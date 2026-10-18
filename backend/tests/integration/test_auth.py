@@ -229,6 +229,49 @@ class AuthIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['state'], 'unavailable')
 
+    def test_lab_process_health_is_admin_only_and_validates_liveness_payload(self):
+        self.assertEqual(self.client.get('/api/lab/outbox-service/health').status_code, 401)
+        self.assertEqual(self.client.get('/api/lab/delivery-worker/health').status_code, 401)
+
+        self.assertEqual(self.login().status_code, 200)
+        self.assertEqual(self.client.get('/api/lab/outbox-service/health').status_code, 403)
+        self.assertEqual(self.client.get('/api/lab/delivery-worker/health').status_code, 403)
+
+        self.client = self.app.test_client()
+        self.assertEqual(self.login(email='admin@elevate.dev').status_code, 200)
+
+        class HealthResponse:
+            status = 200
+
+            def read(self, _limit):
+                return b'{"status":"ok"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        with patch('features.lab.routes.urlopen', return_value=HealthResponse()):
+            outbox = self.client.get('/api/lab/outbox-service/health')
+            worker = self.client.get('/api/lab/delivery-worker/health')
+
+        self.assertEqual(outbox.get_json()['state'], 'available')
+        self.assertEqual(worker.get_json()['state'], 'available')
+
+        class InvalidHealthResponse(HealthResponse):
+            def read(self, _limit):
+                return b'not-json'
+
+        with patch('features.lab.routes.urlopen', return_value=InvalidHealthResponse()):
+            response = self.client.get('/api/lab/outbox-service/health')
+
+        self.assertEqual(response.get_json(), {
+            'id': 'outbox-service',
+            'name': 'Outbox Service',
+            'state': 'unavailable',
+        })
+
     def test_lab_health_is_partial_when_one_simulator_is_unavailable(self):
         self.assertEqual(self.login(email='admin@elevate.dev').status_code, 200)
 

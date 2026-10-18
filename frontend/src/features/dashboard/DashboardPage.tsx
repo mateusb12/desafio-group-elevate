@@ -3,7 +3,7 @@ import { getDashboardMetrics, type DashboardMetrics } from './dashboard.service'
 
 const cards: { key: keyof DashboardMetrics; label: string; suffix?: string }[] = [
   { key: 'total', label: 'Total de leads' }, { key: 'receivedToday', label: 'Recebidos hoje' },
-  { key: 'distributed', label: 'Leads distribuídos' }, { key: 'pending', label: 'Leads pendentes' },
+  { key: 'distributed', label: 'Leads distribuídos' }, { key: 'pending', label: 'Leads aguardando distribuição' },
   { key: 'sales', label: 'Vendas' }, { key: 'conversionRate', label: 'Taxa de conversão', suffix: '%' },
 ]
 

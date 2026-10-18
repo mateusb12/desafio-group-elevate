@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { checkCallCenterHealth, checkRabbitMqHealth, listDeliveries, type Delivery, type ServiceHealth } from './deliveries.service'
+import { checkCallCenterHealth, checkDeliveryWorkerHealth, checkOutboxServiceHealth, checkRabbitMqHealth, listDeliveries, type Delivery, type ServiceHealth } from './deliveries.service'
 
 type Experiment = {
   id: string
@@ -29,7 +29,7 @@ const experiments: Experiment[] = [
     objective: 'Apresentar a separação entre a transação do banco e a publicação no broker.',
     problem: 'O que acontece quando o banco salva o lead, mas a mensagem não pode ser enviada?',
     prerequisites: ['Use o LAB Leads para gerar novos leads.'],
-    steps: ['Execute `docker compose stop rabbitmq`.', 'Gere leads e observe os pendentes aumentando.', 'Execute `docker compose start rabbitmq` e atualize os dados.'],
+    steps: ['Execute `docker compose stop rabbitmq`.', 'Gere leads e observe os eventos pendentes na Outbox aumentando.', 'Execute `docker compose start rabbitmq` e atualize os dados.'],
     expected: 'O lead é salvo mesmo quando a mensagem não pode ser enviada. Ela fica pendente e é enviada depois.',
     explanation: 'A API salva o lead no PostgreSQL. O publisher faz retry até conseguir enviar a mensagem.',
   },
@@ -62,13 +62,11 @@ const experiments: Experiment[] = [
   },
 ]
 
-const stateLabel: Record<string, string> = { available: 'Disponível', unavailable: 'Indisponível', 'not-implemented': 'Não implementado', 'not-monitored': 'Implementado, não monitorado', unknown: 'Não verificado', pending: 'Pendente', retry_scheduled: 'Retry agendado', published: 'Publicado', delivered: 'Entregue', failed: 'Falha final' }
+const stateLabel: Record<string, string> = { available: 'Online', unavailable: 'Offline', unknown: 'Não verificado', pending: 'Pendente', retry_scheduled: 'Retry agendado', published: 'Publicado', delivered: 'Entregue', failed: 'Falha final' }
 
 const stateTone: Record<string, string> = {
   available: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   unavailable: 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
-  'not-implemented': 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
-  'not-monitored': 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
   unknown: 'bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400',
   retry_scheduled: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
   published: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
@@ -108,45 +106,66 @@ export function LabDeliveriesPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
   const [counters, setCounters] = useState({ total: 0, pending: 0, published: 0, deliveryTotal: 0, initialPending: 0, delivered: 0, retrying: 0, failed: 0 })
   const [health, setHealth] = useState<ServiceHealth[]>([])
+  const [processHealth, setProcessHealth] = useState<ServiceHealth[]>([])
   const [rabbitMqState, setRabbitMqState] = useState<'available' | 'unavailable' | 'unknown'>('unknown')
+  const [rabbitMqMessageCount, setRabbitMqMessageCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [healthError, setHealthError] = useState('')
   const [copiedId, setCopiedId] = useState('')
+  const refreshInFlight = useRef(false)
   const selected = experiments.find((experiment) => experiment.id === selectedId) ?? experiments[0]
 
   const refresh = useCallback(async (initial = false) => {
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
     if (initial) setLoading(true)
     else setRefreshing(true)
     setError('')
     setHealthError('')
-    const [deliveryResult, healthResult, rabbitMqResult] = await Promise.allSettled([listDeliveries(), checkCallCenterHealth(), checkRabbitMqHealth()])
+    const [deliveryResult, healthResult, rabbitMqResult, outboxResult, workerResult] = await Promise.allSettled([listDeliveries(), checkCallCenterHealth(), checkRabbitMqHealth(), checkOutboxServiceHealth(), checkDeliveryWorkerHealth()])
     if (deliveryResult.status === 'fulfilled') {
       setDeliveries(deliveryResult.value.deliveries)
       setCounters(deliveryResult.value.counters)
     } else setError(deliveryResult.reason instanceof Error ? deliveryResult.reason.message : 'Falha ao consultar a Outbox.')
     if (healthResult.status === 'fulfilled') setHealth(healthResult.value)
     else setHealthError(healthResult.reason instanceof Error ? healthResult.reason.message : 'Falha ao consultar simuladores.')
-    if (rabbitMqResult.status === 'fulfilled') setRabbitMqState(rabbitMqResult.value.state)
+    if (rabbitMqResult.status === 'fulfilled') {
+      setRabbitMqState(rabbitMqResult.value.state)
+      setRabbitMqMessageCount(rabbitMqResult.value.messageCount ?? null)
+    } else {
+      setRabbitMqMessageCount(null)
+    }
+    if (outboxResult.status === 'fulfilled') {
+      setProcessHealth((current) => [...current.filter((item) => item.id !== 'outbox-service'), outboxResult.value])
+    } else {
+      setProcessHealth((current) => [...current.filter((item) => item.id !== 'outbox-service'), { name: 'Outbox Service', id: 'outbox-service', state: 'unknown' }])
+    }
+    if (workerResult.status === 'fulfilled') {
+      setProcessHealth((current) => [...current.filter((item) => item.id !== 'delivery-worker'), workerResult.value])
+    } else {
+    setProcessHealth((current) => [...current.filter((item) => item.id !== 'delivery-worker'), { name: 'Worker', id: 'delivery-worker', state: 'unknown' }])
+    }
     setLoading(false)
     setRefreshing(false)
+    refreshInFlight.current = false
   }, [])
 
   useEffect(() => {
     void refresh(true)
-    const timer = window.setInterval(() => void refresh(), 15000)
+    const timer = window.setInterval(() => void refresh(), 1000)
     return () => window.clearInterval(timer)
   }, [refresh])
 
   const flow = useMemo(() => [
-    { label: 'Lead', state: deliveries.length || counters.total ? 'available' : 'unknown' },
-    { label: 'PostgreSQL / Outbox', state: error ? 'unknown' : loading ? 'unknown' : 'available' },
-    { label: 'Outbox Service', state: 'not-monitored' },
-    { label: 'RabbitMQ', state: rabbitMqState },
-    { label: 'Worker', state: 'not-monitored' },
-    { label: 'Call center HTTP', state: health.length ? (health.some((item) => item.state === 'available') ? 'available' : 'unavailable') : 'unknown' },
-  ], [counters.total, deliveries.length, error, health, loading, rabbitMqState])
+    { label: 'Lead', state: deliveries.length || counters.total ? 'available' : 'unknown', processedCount: undefined, messageCount: undefined },
+    { label: 'PostgreSQL / Outbox', state: error ? 'unknown' : loading ? 'unknown' : 'available', processedCount: undefined, messageCount: undefined },
+    { label: 'Outbox Service', state: processHealth.find((item) => item.id === 'outbox-service')?.state ?? 'unknown', processedCount: undefined, messageCount: undefined },
+    { label: 'RabbitMQ', state: rabbitMqState, processedCount: undefined, messageCount: rabbitMqMessageCount ?? undefined },
+    { label: 'Worker', state: processHealth.find((item) => item.id === 'delivery-worker')?.state ?? 'unknown', processedCount: processHealth.find((item) => item.id === 'delivery-worker')?.processedCount, messageCount: undefined },
+    { label: 'Call center HTTP', state: health.length ? (health.some((item) => item.state === 'available') ? 'available' : 'unavailable') : 'unknown', processedCount: undefined, messageCount: undefined },
+  ], [counters.total, deliveries.length, error, health, loading, processHealth, rabbitMqMessageCount, rabbitMqState])
 
   async function copyIdentifier(value: string) {
     try {
@@ -156,6 +175,31 @@ export function LabDeliveriesPage() {
     } catch {
       // O UUID resumido continua visível mesmo quando a área de transferência não está disponível.
     }
+  }
+
+  function renderStep(step: string) {
+    const command = step.match(/^(.*?)`([^`]+)`(.*)$/)
+    if (!command) return step
+
+    const [, before, value, after] = command
+    return (
+      <>
+        {before}
+        <span className="my-1 inline-flex max-w-full items-center overflow-hidden rounded-md border border-slate-700/70 bg-slate-950/60 align-middle dark:border-white/[.10] dark:bg-black/20">
+          <code className="min-w-0 truncate px-2 py-1 font-mono text-[12px] text-slate-300">{value}</code>
+          <button
+            type="button"
+            onClick={() => void copyIdentifier(value)}
+            title="Copiar comando"
+            aria-label={`Copiar comando ${value}`}
+            className="grid size-7 shrink-0 place-items-center border-l border-slate-700/70 text-slate-400 transition hover:bg-indigo-500/15 hover:text-indigo-300 dark:border-white/[.10]"
+          >
+            {copiedId === value ? '✓' : '⧉'}
+          </button>
+        </span>
+        {after.startsWith(' e ') ? <span className="block">{after}</span> : after}
+      </>
+    )
   }
 
   return (
@@ -172,26 +216,35 @@ export function LabDeliveriesPage() {
       </header>
 
       <div className={`${panelClass} mt-6 p-4 sm:p-5`}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
-          {flow.map((item, index) => (
-            <div key={item.label} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-1">
-              <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
-                <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
-                <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
-              </div>
-              {index < flow.length - 1 && <span className="hidden shrink-0 px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>}
+        <div className="flex flex-col gap-5">
+          {[flow.slice(0, 3), flow.slice(3)].map((row, rowIndex) => (
+            <div key={rowIndex} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
+              {row.map((item, index) => (
+                <div key={item.label} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-1">
+                  <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                    <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
+                      {item.label === 'Worker' && item.processedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.processedCount} processados até agora</span>}
+                      {item.label === 'RabbitMQ' && item.messageCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.messageCount} na fila</span>}
+                      {item.label === 'PostgreSQL / Outbox' && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{counters.pending} eventos pendentes na Outbox</span>}
+                    </div>
+                  </div>
+                  {index < row.length - 1 && <span className="hidden shrink-0 px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>}
+                </div>
+              ))}
             </div>
           ))}
         </div>
       </div>
 
-      <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,.85fr)]">
+      <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,.9fr)_minmax(500px,1.1fr)]">
         <section aria-labelledby="experiments-title">
           <div className="mb-3 flex items-baseline justify-between"><h2 id="experiments-title" className="text-base font-semibold text-slate-700 dark:text-slate-200">Experimentos</h2><span className="text-xs text-slate-500 dark:text-slate-400">Selecione um roteiro</span></div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {experiments.map((experiment) => (
               <button key={experiment.id} type="button" onClick={() => setSelectedId(experiment.id)} aria-pressed={selected.id === experiment.id} className={`min-h-[138px] rounded-xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 ${selected.id === experiment.id ? 'border-indigo-400/70 bg-indigo-500/[.08]' : 'border-slate-200/80 bg-white hover:border-indigo-300/70 hover:bg-slate-50 dark:border-white/[.08] dark:bg-[#101827] dark:hover:bg-white/[.04]'}`}>
-                <div className="flex items-start justify-between gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-lg leading-none text-slate-500 dark:bg-white/[.07] dark:text-slate-300" aria-hidden="true">{experimentIcons[experiment.id]}</span><span className={`rounded-full px-2 py-1 text-[11px] font-medium ${experiment.status === 'Disponível' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}>{experiment.status}</span></div>
+                <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-lg leading-none text-slate-500 dark:bg-white/[.07] dark:text-slate-300" aria-hidden="true">{experimentIcons[experiment.id]}</span></div>
                 <h3 className="mt-4 text-[15px] font-semibold leading-tight">{experiment.title}</h3>
                 <p className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-slate-500 dark:text-slate-400">{experiment.objective}</p>
               </button>
@@ -204,7 +257,7 @@ export function LabDeliveriesPage() {
           <p className="mt-4 text-[13px] leading-5 text-slate-700 dark:text-slate-300"><span className="font-semibold text-slate-900 dark:text-slate-100">Problema:</span> {selected.problem}</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <div><h3 className="text-xs font-semibold text-slate-400">Pré-requisitos</h3><ul className="mt-2 space-y-1.5 text-[13px] leading-5 text-slate-600 dark:text-slate-300">{selected.prerequisites.map((item) => <li key={item}>• {item}</li>)}</ul></div>
-            <div><h3 className="text-xs font-semibold text-slate-400">Passos</h3><ol className="mt-2 space-y-1.5 text-[13px] leading-5 text-slate-600 dark:text-slate-300">{selected.steps.map((item, index) => <li key={item}>{index + 1}. {item}</li>)}</ol></div>
+            <div><h3 className="text-xs font-semibold text-slate-400">Passos</h3><ol className="mt-2 space-y-1.5 text-[13px] leading-5 text-slate-600 dark:text-slate-300">{selected.steps.map((item, index) => <li key={item}>{index + 1}. {renderStep(item)}</li>)}</ol></div>
           </div>
           <div className="mt-5 rounded-lg bg-slate-50/80 p-3.5 text-[13px] leading-5 dark:bg-white/[.045]"><p><span className="font-semibold">Resultado esperado:</span> {selected.expected}</p><p className="mt-2 text-slate-600 dark:text-slate-300"><span className="font-semibold text-slate-900 dark:text-slate-100">O que demonstra:</span> {selected.explanation}</p></div>
           {selected.id === 'outbox' || selected.id === 'concurrency' ? <Link to="/lab" className="mt-4 inline-flex text-[13px] font-medium text-indigo-600 hover:text-indigo-500 hover:underline dark:text-indigo-300 dark:hover:text-indigo-200">Abrir LAB Leads para gerar dados →</Link> : null}

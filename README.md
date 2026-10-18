@@ -17,7 +17,7 @@ Serviços disponíveis:
 - Simuladores HTTP: Logicall (`http://localhost:8101`), Salesbound
   (`http://localhost:8102`) e AtendeMais (`http://localhost:8103`)
 
-Os três simuladores representam APIs externas fictícias para testar a futura
+Os três simuladores representam APIs externas fictícias para testar a
 integração com os call centers cadastrados: Logicall (`call-center-a`),
 Salesbound (`call-center-b`) e AtendeMais (`call-center-c`). Internamente, os
 endpoints são `http://logicall:8101/leads`,
@@ -30,24 +30,30 @@ Depois de iniciar o Compose, teste a saúde e o recebimento de um lead:
 curl http://localhost:8101/health
 curl -X POST http://localhost:8101/leads \
   -H 'Content-Type: application/json' \
-  -d '{"lead_id":"demo-001","name":"Exemplo"}'
+  -d '{"event_id":"event-demo-001","lead_id":"demo-001"}'
 curl -X POST http://localhost:8102/leads \
   -H 'Content-Type: application/json' \
-  -d '{"lead_id":"demo-002"}'
+  -d '{"event_id":"event-demo-002","lead_id":"demo-002"}'
 curl -X POST http://localhost:8103/leads \
   -H 'Content-Type: application/json' \
-  -d '{"lead_id":"demo-003"}'
+  -d '{"event_id":"event-demo-003","lead_id":"demo-003"}'
 ```
 
-Os simuladores ainda não estão conectados ao dispatcher e não recebem chamadas
-do backend durante a criação de leads. O RabbitMQ recebe os eventos por um
-publisher independente; ainda não existe Delivery Worker nem envio HTTP
-automático aos call centers.
+O fluxo automático é **API → Outbox PostgreSQL → Outbox Service → RabbitMQ →
+Delivery Worker → POST `/leads`**. O worker escolhe o endpoint pelo
+`call_center_id`, confirma manualmente somente depois do HTTP 2xx e grava o
+estado em `delivery_leads_to_call_centers`. Cada simulador persiste `event_id` em SQLite no
+volume Docker; uma redelivery retorna `duplicate=true` sem repetir o efeito.
 
 RabbitMQ fica disponível no Management UI em <http://localhost:15672>.
 As credenciais locais são `RABBITMQ_DEFAULT_USER` e `RABBITMQ_DEFAULT_PASS`
-(por padrão, `elevate` / `elevate-local-only`). O publisher pode ser observado
-com `docker compose logs -f outbox-service`.
+(por padrão, `elevate` / `elevate-local-only`). Observe o fluxo com:
+`docker compose logs -f outbox-service delivery-worker`.
+
+O worker usa timeout HTTP e retry exponencial durável (dez tentativas por
+padrão, com teto de 30 segundos entre tentativas). Mensagens inválidas e falhas finais vão para a fila durável
+`lead.distributed.invalid`; tarefas de destinos diferentes são processadas
+independentemente.
 
 Pare com `docker compose down`, sem apagar o volume.
 
@@ -76,7 +82,7 @@ Stack e fluxo principal:
 - A atribuição é persistida no banco.
 - Não há filas, Redis ou envio para call centers reais.
 
-### Evolução arquitetural: Outbox transacional
+### Evolução arquitetural: Outbox transacional e Delivery Worker
 
 O sistema também persiste a intenção de encaminhar cada distribuição na tabela
 `outbox_pending_deliveries`. Ela é diferente de `events`: `events` registra o
@@ -88,8 +94,8 @@ Assim, uma falha reverte todas as partes juntas e não deixa uma distribuição
 sem a intenção correspondente de publicação. O payload contém somente os IDs
 do evento, lead, distribuição e call center; não inclui dados pessoais.
 
-O fluxo atual é: **Persistido na Outbox → Publicado no RabbitMQ → Entregue ao
-call center**. Nesta etapa, somente os dois primeiros estados existem.
+O fluxo é: **Persistido na Outbox → Publicado no RabbitMQ → Entregue ao call
+center**. O LAB Entregas mantém esses estados separados de retry e falha final.
 
 O **Outbox Service** consulta eventos pendentes em lotes pequenos, declara a
 fila durável `lead.distributed` e publica mensagens JSON persistentes com
@@ -100,13 +106,21 @@ continua sendo confirmado e o evento permanece pendente para retry.
 
 Essa é uma publicação **at-least-once**. Se RabbitMQ confirmar e a atualização
 posterior no PostgreSQL falhar, a próxima tentativa pode publicar novamente o
-mesmo `event_id`; não há promessa de exactly-once. O futuro consumidor deverá
-ser idempotente por esse identificador. Nesta demonstração há uma única
-instância do publisher; múltiplas réplicas não são declaradas seguras.
+mesmo `event_id`; não há promessa de exactly-once. O Delivery Worker consulta
+`delivery_leads_to_call_centers` antes de reenviar e os simuladores usam o mesmo identificador
+como chave persistente. Isso torna segura a redelivery depois de um `ack` perdido,
+sem fingir que existe uma transação distribuída com o HTTP externo.
 
 Para demonstrar a recuperação: execute `docker compose stop rabbitmq`, gere
 leads no LAB Leads e observe os pendentes aumentarem; depois execute
 `docker compose start rabbitmq` e acompanhe os logs e os contadores do LAB.
+
+Para demonstrar falha parcial, execute `docker compose stop logicall`, gere
+leads e observe `retry_scheduled` enquanto Salesbound e AtendeMais continuam
+entregando. Execute `docker compose start logicall` e atualize o LAB. Para
+demonstrar duplicação, republique o mesmo JSON no RabbitMQ Management ou
+reinicie o worker durante o POST; o simulador registra `duplicate=true` e não
+repete o efeito persistido.
 
 ## 6–7. Recebimento e validação
 

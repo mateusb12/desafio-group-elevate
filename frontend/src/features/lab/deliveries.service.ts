@@ -7,26 +7,29 @@ export type Delivery = {
   callCenterId: string
   createdAt: string
   publishedAt: string | null
-  state: 'pending' | 'published'
+  state: 'pending' | 'published' | 'retry_scheduled' | 'delivered' | 'failed'
+  deliveryStatus: 'pending' | 'retry_scheduled' | 'delivered' | 'failed' | null
 }
 
 export type DeliveryResponse = {
   deliveries: Delivery[]
-  counters: { total: number; pending: number; published: number }
+  counters: { total: number; pending: number; published: number; deliveryTotal: number; initialPending: number; delivered: number; retrying: number; failed: number }
   pagination: { page: number; pageSize: number; total: number; totalPages: number }
 }
 
 export type ServiceHealth = {
   name: string
   id: string
-  state: 'available' | 'unavailable'
+  state: 'available' | 'unavailable' | 'unknown'
   httpStatus?: number
   error?: string
+  processedCount?: number
 }
 
 export type RabbitMqHealth = {
   state: 'available' | 'unavailable'
   error?: string
+  messageCount?: number
 }
 
 async function readJson<T extends object>(response: Response): Promise<T> {
@@ -51,4 +54,21 @@ export async function checkCallCenterHealth(): Promise<ServiceHealth[]> {
 export async function checkRabbitMqHealth(): Promise<RabbitMqHealth> {
   const response = await fetch('/api/api/lab/rabbitmq', { credentials: 'same-origin' })
   return readJson<RabbitMqHealth>(response)
+}
+
+async function checkProcessHealth(path: string, expectedId: string, expectedName: string): Promise<ServiceHealth> {
+  const response = await fetch(path, { credentials: 'same-origin' })
+  const body = await readJson<ServiceHealth>(response)
+  if (body.id !== expectedId || body.name !== expectedName || !['available', 'unavailable'].includes(body.state)) {
+    throw new Error('Resposta inválida da saúde do processo.')
+  }
+  return body
+}
+
+export function checkOutboxServiceHealth(): Promise<ServiceHealth> {
+  return checkProcessHealth('/api/api/lab/outbox-service/health', 'outbox-service', 'Outbox Service')
+}
+
+export function checkDeliveryWorkerHealth(): Promise<ServiceHealth> {
+  return checkProcessHealth('/api/api/lab/delivery-worker/health', 'delivery-worker', 'Worker')
 }

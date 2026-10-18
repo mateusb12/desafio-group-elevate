@@ -93,7 +93,7 @@ def count_requests_waiting_for_dispatcher_lock():
 
 
 def wait_for_dispatcher_lock_contention():
-    """Aguarda requests aparecerem esperando pelo lock do dispatcher.
+    """Aguarda requisições aparecerem esperando pelo bloqueio do dispatcher.
 
     Retorna quantas requests estavam bloqueadas.
     """

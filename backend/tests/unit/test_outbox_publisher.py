@@ -3,21 +3,40 @@ import os
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from pika.exceptions import AMQPConnectionError, NackError, UnroutableError
 from sqlalchemy.exc import SQLAlchemyError
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://elevate:elevate-local-only@localhost:5433/elevate")
 
-from features.outbox.publisher import process_batch, publish_event
+from features.outbox.publisher import check_rabbitmq, process_batch, publish_event
 
 
 class FakeChannel:
-    def __init__(self, confirmed=True):
-        self.confirmed = confirmed
+    def __init__(self, error=None):
+        self.error = error
         self.calls = []
 
     def basic_publish(self, **kwargs):
         self.calls.append(kwargs)
-        return self.confirmed
+        if self.error is not None:
+            raise self.error
+        return None
+
+
+class FakeRabbitChannel:
+    def queue_declare(self, **kwargs):
+        self.queue_declare_kwargs = kwargs
+        return SimpleNamespace(method=SimpleNamespace(message_count=7))
+
+    def close(self):
+        return None
+
+
+class FakeRabbitConnection:
+    is_closed = False
+
+    def close(self):
+        return None
 
 
 def event(event_id="event-1"):
@@ -25,6 +44,15 @@ def event(event_id="event-1"):
 
 
 class OutboxPublisherTests(unittest.TestCase):
+    def test_rabbitmq_health_returns_ready_message_count(self):
+        connection = FakeRabbitConnection()
+        channel = FakeRabbitChannel()
+
+        with patch("features.outbox.publisher.open_confirmed_channel", return_value=(connection, channel)):
+            self.assertEqual(check_rabbitmq(), {"state": "available", "messageCount": 7})
+
+        self.assertEqual(channel.queue_declare_kwargs, {"queue": "lead.distributed", "passive": True})
+
     def test_publish_uses_confirmed_persistent_mandatory_json_message(self):
         channel = FakeChannel()
 
@@ -47,11 +75,29 @@ class OutboxPublisherTests(unittest.TestCase):
 
         mark.assert_called_once_with("event-1")
 
-    def test_negative_confirmation_does_not_mark_event(self):
-        channel = FakeChannel(confirmed=False)
+    def test_nack_does_not_mark_event(self):
+        channel = FakeChannel(NackError([]))
 
         with patch("features.outbox.publisher.mark_published") as mark:
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(NackError):
+                process_batch(channel, [event()])
+
+        mark.assert_not_called()
+
+    def test_unroutable_does_not_mark_event(self):
+        channel = FakeChannel(UnroutableError([]))
+
+        with patch("features.outbox.publisher.mark_published") as mark:
+            with self.assertRaises(UnroutableError):
+                process_batch(channel, [event()])
+
+        mark.assert_not_called()
+
+    def test_connection_failure_does_not_mark_event(self):
+        channel = FakeChannel(AMQPConnectionError("connection closed"))
+
+        with patch("features.outbox.publisher.mark_published") as mark:
+            with self.assertRaises(AMQPConnectionError):
                 process_batch(channel, [event()])
 
         mark.assert_not_called()

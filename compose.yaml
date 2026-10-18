@@ -49,6 +49,8 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       DATABASE_URL: "postgresql+psycopg://elevate:elevate-local-only@db:5432/elevate"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:-local-demo-only-change-me-with-32-plus-bytes}"
+      OUTBOX_SERVICE_HEALTH_URL: "http://outbox-service:8091/health"
+      DELIVERY_WORKER_HEALTH_URL: "http://delivery-worker:8092/health"
     depends_on:
       db:
         condition: service_healthy
@@ -79,12 +81,39 @@ services:
       OUTBOX_POLL_INTERVAL_SECONDS: "2"
       OUTBOX_RETRY_INITIAL_SECONDS: "1"
       OUTBOX_RETRY_MAX_SECONDS: "30"
+      OUTBOX_HEALTH_PORT: "8091"
     depends_on:
       db:
         condition: service_healthy
       migrations:
         condition: service_completed_successfully
     command: python -m features.outbox.publisher
+    volumes:
+      - ./backend:/app
+
+  delivery-worker:
+    build: ./backend
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DATABASE_URL: "postgresql+psycopg://elevate:elevate-local-only@db:5432/elevate"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: "${RABBITMQ_DEFAULT_USER:-elevate}"
+      RABBITMQ_PASSWORD: "${RABBITMQ_DEFAULT_PASS:-elevate-local-only}"
+      DELIVERY_WORKERS: "8"
+      DELIVERY_HTTP_TIMEOUT_SECONDS: "3"
+      DELIVERY_MAX_ATTEMPTS: "10"
+      DELIVERY_RETRY_INITIAL_SECONDS: "1"
+      DELIVERY_RETRY_MAX_SECONDS: "30"
+      DELIVERY_WORKER_HEALTH_PORT: "8092"
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+    command: python -m features.delivery_worker.worker
     volumes:
       - ./backend:/app
 
@@ -109,6 +138,8 @@ services:
       PORT: "8101"
     ports:
       - "127.0.0.1:8101:8101"
+    volumes:
+      - logicall_deliveries:/data
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8101/health', timeout=2)"]
       interval: 5s
@@ -123,6 +154,8 @@ services:
       PORT: "8102"
     ports:
       - "127.0.0.1:8102:8102"
+    volumes:
+      - salesbound_deliveries:/data
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8102/health', timeout=2)"]
       interval: 5s
@@ -137,6 +170,8 @@ services:
       PORT: "8103"
     ports:
       - "127.0.0.1:8103:8103"
+    volumes:
+      - atendemais_deliveries:/data
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8103/health', timeout=2)"]
       interval: 5s
@@ -146,3 +181,6 @@ services:
 volumes:
   postgres_data:
   rabbitmq_data:
+  logicall_deliveries:
+  salesbound_deliveries:
+  atendemais_deliveries:

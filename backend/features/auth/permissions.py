@@ -32,7 +32,7 @@ def _admin_error(db: Session, forbidden_message: str):
 
 
 def require_admin(db: Session, forbidden_message: str = "Acesso restrito a administradores."):
-    """Aplica a regra de admin nos fluxos que não usam decorator."""
+    """Verifica se o usuário é administrador."""
     return _admin_error(db, forbidden_message)
 
 

@@ -1,4 +1,4 @@
-"""Publica a Outbox no RabbitMQ com semântica at-least-once."""
+"""Publica a Outbox no RabbitMQ com semântica de entrega pelo menos uma vez."""
 
 import json
 import logging
@@ -13,12 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from shared.database import db_session
+from shared.health_server import start_health_server
 
 from features.leads import models as leads_models  # noqa: F401 - registra Distribution no metadata
 from .models import OutboxPendingDelivery
 
 LOGGER = logging.getLogger("outbox-publisher")
 QUEUE_NAME = "lead.distributed"
+HEALTH_PORT = int(os.getenv("OUTBOX_HEALTH_PORT", "8091"))
 
 
 class PublishError(RuntimeError):
@@ -50,13 +52,17 @@ def open_confirmed_channel():
 
 
 def check_rabbitmq() -> dict:
-    """Retorna apenas disponibilidade; nunca expõe credenciais."""
+    """Retorna apenas a disponibilidade; nunca expõe credenciais."""
     connection = None
     try:
         connection, channel = open_confirmed_channel()
+        queue_state = channel.queue_declare(queue=QUEUE_NAME, passive=True)
         channel.close()
         connection.close()
-        return {"state": "available"}
+        return {
+            "state": "available",
+            "messageCount": queue_state.method.message_count,
+        }
     except (AMQPError, OSError, TimeoutError) as error:
         if connection is not None and not connection.is_closed:
             connection.close()
@@ -86,15 +92,13 @@ def publish_event(channel, event: OutboxPendingDelivery) -> None:
         delivery_mode=2,
         message_id=event.id,
     )
-    confirmed = channel.basic_publish(
+    channel.basic_publish(
         exchange="",
         routing_key=QUEUE_NAME,
         body=json.dumps(event.payload, separators=(",", ":"), sort_keys=True).encode(),
         properties=properties,
         mandatory=True,
     )
-    if confirmed is False:
-        raise PublishError("broker did not confirm the message")
 
 
 def process_batch(channel, events: list[OutboxPendingDelivery]) -> int:
@@ -105,7 +109,7 @@ def process_batch(channel, events: list[OutboxPendingDelivery]) -> int:
             mark_published(event.id)
             published += 1
             LOGGER.info("event_id=%s result=published_confirmed", event.id)
-        except (NackError, UnroutableError, PublishError) as error:
+        except (NackError, UnroutableError, AMQPError, OSError, TimeoutError, PublishError) as error:
             LOGGER.warning("event_id=%s result=publish_rejected reason=%s", event.id, error.__class__.__name__)
             raise
         except SQLAlchemyError:
@@ -166,9 +170,13 @@ class Publisher:
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     publisher = Publisher()
+    health_server = start_health_server(HEALTH_PORT)
     signal.signal(signal.SIGTERM, publisher.stop)
     signal.signal(signal.SIGINT, publisher.stop)
-    publisher.run()
+    try:
+        publisher.run()
+    finally:
+        health_server.stop()
 
 
 if __name__ == "__main__":

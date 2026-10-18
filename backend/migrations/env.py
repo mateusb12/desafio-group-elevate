@@ -1,4 +1,4 @@
-"""Migrations Alembic usando o mesmo engine e metadata da aplicacao."""
+"""Migrações Alembic usando o mesmo mecanismo e metadados da aplicação."""
 
 from alembic import context
 from shared.database import Base, engine
@@ -8,6 +8,7 @@ from features.auth import models as auth_models  # noqa: F401
 from features.dispatcher import models as dispatcher_models  # noqa: F401
 from features.leads import models as leads_models  # noqa: F401
 from features.outbox import models as outbox_models  # noqa: F401
+from features.delivery_worker import models as delivery_models  # noqa: F401
 
 
 def run_migrations_online():
