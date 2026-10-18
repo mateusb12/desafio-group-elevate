@@ -67,6 +67,9 @@ As migrations fazem backfill de referências legadas antes de criar as FKs.
 - `GET /api/leads` lista leads com filtros `search`, `product`, `funnel`,
   `source`, `callCenterId`, `status`, `from` e `to`, além de `page` e
   `pageSize` para paginação;
+- `GET /api/leads/<id>` retorna os detalhes e o histórico de eventos do lead;
+- `PATCH /api/leads/<id>/status` atualiza o status do atendimento e registra o
+  evento; operadores só acessam leads do próprio call center;
 - `POST /api/webhooks/callcenter` mantém o histórico de eventos e a atualização
   ordenada do status atual.
 

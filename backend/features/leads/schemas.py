@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator
 
@@ -52,6 +53,22 @@ class LeadListQuery(BaseModel):
     @classmethod
     def empty_string_to_none(cls, value):
         return None if value == '' else value
+
+
+class LeadStatusUpdateInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    status: Literal[
+        'new', 'contacted', 'no_answer', 'callback',
+        'qualified', 'sale', 'refund', 'invalid',
+    ]
+
+
+def validate_lead_status_update(body):
+    try:
+        return LeadStatusUpdateInput.model_validate(body), None
+    except ValidationError:
+        return None, 'Status inválido.'
 
 
 def validate_lead_list_query(query):

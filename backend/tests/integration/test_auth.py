@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from psycopg import connect, sql
 from sqlalchemy.engine import make_url
+from sqlalchemy import delete, select
 
 
 class AuthIntegrationTests(unittest.TestCase):
@@ -262,6 +263,95 @@ class AuthIntegrationTests(unittest.TestCase):
         self.assertEqual(body['pagination']['totalPages'], 2)
         self.assertEqual(len(body['leads']), 1)
         self.assertIn('filter-test', body['filters']['sources'])
+
+    def test_operator_can_view_and_update_only_leads_from_own_call_center(self):
+        from features.leads.models import Contact, Lead
+        from shared.database import db_session
+
+        marker = uuid4().hex
+        response = self.client.post(
+            '/api/leads',
+            json={
+                'name': 'Lead Atendimento',
+                'email': f'{marker}@example.com',
+                'phone': '+5585990000999',
+                'product': 'nutralean',
+                'funnel': 'vsl-01',
+                'source': 'operator-test',
+                'campaign': f'operator-test-{marker}',
+                'affiliate_id': f'operator-affiliate-{marker}',
+                'utm': {
+                    'source': 'operator-test',
+                    'medium': 'test',
+                    'campaign': f'operator-test-{marker}',
+                    'content': 'integration',
+                },
+            },
+            headers={'Idempotency-Key': str(uuid4())},
+        )
+        self.assertEqual(response.status_code, 201, response.get_json())
+        lead_id = response.get_json()['id']
+
+        with db_session() as db, db.begin():
+            lead = db.scalar(select(Lead).where(Lead.id == lead_id))
+            lead.call_center_id = 'call-center-b'
+
+        try:
+            self.client = self.app.test_client()
+            self.assertEqual(
+                self.login(email='ana@logicall.example').status_code,
+                200,
+            )
+            self.assertEqual(
+                self.client.get(f'/api/leads/{lead_id}').status_code,
+                404,
+            )
+            self.assertEqual(
+                self.client.patch(
+                    f'/api/leads/{lead_id}/status',
+                    json={'status': 'contacted'},
+                    headers={
+                        'X-CSRF-TOKEN': self.client.get_cookie(
+                            'csrf_access_token'
+                        ).value,
+                    },
+                ).status_code,
+                404,
+            )
+
+            self.client = self.app.test_client()
+            self.assertEqual(
+                self.login(email='bruno@salesbound.example').status_code,
+                200,
+            )
+            detail = self.client.get(f'/api/leads/{lead_id}')
+            self.assertEqual(detail.status_code, 200)
+            self.assertEqual(detail.get_json()['status'], 'new')
+            self.assertEqual(len(detail.get_json()['events']), 1)
+
+            csrf = self.client.get_cookie('csrf_access_token')
+            updated = self.client.patch(
+                f'/api/leads/{lead_id}/status',
+                json={'status': 'contacted'},
+                headers={'X-CSRF-TOKEN': csrf.value},
+            )
+            self.assertEqual(updated.status_code, 200, updated.get_json())
+
+            detail = self.client.get(f'/api/leads/{lead_id}')
+            self.assertEqual(detail.status_code, 200)
+            body = detail.get_json()
+            self.assertEqual(body['status'], 'contacted')
+            self.assertEqual(
+                [event['status'] for event in body['events']],
+                ['contacted', 'new'],
+            )
+        finally:
+            with db_session() as db, db.begin():
+                lead = db.scalar(select(Lead).where(Lead.id == lead_id))
+                contact_id = lead.contact_id if lead else None
+                db.execute(delete(Lead).where(Lead.id == lead_id))
+                if contact_id:
+                    db.execute(delete(Contact).where(Contact.id == contact_id))
 
     def test_inactive_user_cannot_login(self):
         from sqlalchemy import select

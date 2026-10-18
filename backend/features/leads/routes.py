@@ -10,13 +10,19 @@ from shared.pagination import paginate_query
 from .idempotency import normalize_idempotency_key
 from features.dispatcher.models import CallCenter
 from . import leads_blueprint
-from .service import create_lead
+from .service import create_lead, update_lead_status
 from .models import (
     Contact,
+    Event,
     Lead,
 )
 from pydantic import ValidationError
-from .schemas import LeadInput, validate_lead_list_query, validation_error_message
+from .schemas import (
+    LeadInput,
+    validate_lead_list_query,
+    validate_lead_status_update,
+    validation_error_message,
+)
 
 def validate_lead(body):
     try:
@@ -34,6 +40,51 @@ def create_leads_base_query():
         .outerjoin(CallCenter, Lead.call_center_id == CallCenter.id)
         .order_by(Lead.received_at.desc(), Lead.id.desc())
     )
+
+
+def get_active_user(db):
+    return db.scalar(
+        select(User).where(
+            User.id == get_jwt_identity(),
+            User.is_active.is_(True),
+        )
+    )
+
+
+def get_user_visibility_filters(user):
+    if user.role == UserRole.OPERATOR:
+        if not user.call_center_id:
+            return None
+        return [Lead.call_center_id == user.call_center_id]
+    return []
+
+
+def serialize_lead_detail(lead, contact, call_center, events):
+    return {
+        'id': lead.id,
+        'name': contact.name,
+        'email': contact.email,
+        'phone': contact.phone,
+        'product': lead.product,
+        'funnel': lead.funnel,
+        'source': lead.source,
+        'campaign': lead.campaign,
+        'affiliateId': lead.affiliate_id,
+        'utm': lead.utm,
+        'callCenterId': lead.call_center_id or '',
+        'callCenterName': call_center.name if call_center else 'Não distribuído',
+        'status': lead.status,
+        'receivedAt': lead.received_at.isoformat(),
+        'events': [
+            {
+                'id': event.id,
+                'status': event.status,
+                'eventAt': event.event_at.isoformat(),
+                'receivedAt': event.received_at.isoformat(),
+            }
+            for event in events
+        ],
+    }
 
 
 def apply_frontend_filters_to_leads_query(
@@ -109,12 +160,7 @@ def receive_lead():
 @jwt_required()
 def list_leads():
     with db_session() as db:
-        user = db.scalar(
-            select(User).where(
-                User.id == get_jwt_identity(),
-                User.is_active.is_(True),
-            )
-        )
+        user = get_active_user(db)
 
         if user is None:
             return jsonify(error='Acesso não autorizado.'), 403
@@ -125,27 +171,22 @@ def list_leads():
         if validation_error:
             return jsonify(error=validation_error), 400
 
-        user_visibility_filters = []
-        if user.role == UserRole.OPERATOR:
-            if not user.call_center_id:
-                return jsonify(
-                    leads=[],
-                    filters={
-                        'products': [],
-                        'funnels': [],
-                        'sources': [],
-                        'callCenters': [],
-                    },
-                    pagination={
-                        'page': frontend_filters.page,
-                        'pageSize': frontend_filters.page_size,
-                        'total': 0,
-                        'totalPages': 0,
-                    },
-                )
-
-            user_visibility_filters.append(
-                Lead.call_center_id == user.call_center_id
+        user_visibility_filters = get_user_visibility_filters(user)
+        if user_visibility_filters is None:
+            return jsonify(
+                leads=[],
+                filters={
+                    'products': [],
+                    'funnels': [],
+                    'sources': [],
+                    'callCenters': [],
+                },
+                pagination={
+                    'page': frontend_filters.page,
+                    'pageSize': frontend_filters.page_size,
+                    'total': 0,
+                    'totalPages': 0,
+                },
             )
 
         leads_query_without_filters = create_leads_base_query()
@@ -225,6 +266,67 @@ def list_leads():
         },
         pagination=pagination,
     )
+
+
+@leads_blueprint.get('/<lead_id>')
+@jwt_required()
+def get_lead_detail(lead_id):
+    with db_session() as db:
+        user = get_active_user(db)
+        if user is None:
+            return jsonify(error='Acesso não autorizado.'), 403
+
+        user_visibility_filters = get_user_visibility_filters(user)
+        if user_visibility_filters is None:
+            return jsonify(error='Lead não encontrado.'), 404
+
+        lead_row = db.execute(
+            select(Lead, Contact, CallCenter)
+            .join(Contact, Lead.contact_id == Contact.id)
+            .outerjoin(CallCenter, Lead.call_center_id == CallCenter.id)
+            .where(Lead.id == lead_id, *user_visibility_filters)
+        ).first()
+        if lead_row is None:
+            return jsonify(error='Lead não encontrado.'), 404
+
+        lead, contact, call_center = lead_row
+        events = db.scalars(
+            select(Event)
+            .where(Event.lead_id == lead.id)
+            .order_by(Event.event_at.desc(), Event.received_at.desc())
+        ).all()
+
+    return jsonify(serialize_lead_detail(lead, contact, call_center, events))
+
+
+@leads_blueprint.patch('/<lead_id>/status')
+@jwt_required()
+def update_status(lead_id):
+    body, validation_error = validate_lead_status_update(
+        request.get_json(silent=True)
+    )
+    if validation_error:
+        return jsonify(error=validation_error), 400
+
+    with db_session() as db:
+        user = get_active_user(db)
+        if user is None:
+            return jsonify(error='Acesso não autorizado.'), 403
+
+        user_visibility_filters = get_user_visibility_filters(user)
+        if user_visibility_filters is None:
+            return jsonify(error='Lead não encontrado.'), 404
+
+        result = update_lead_status(
+            db,
+            lead_id,
+            body.status,
+            user_visibility_filters,
+        )
+        if result.status_code == 200:
+            db.commit()
+
+    return jsonify(result.payload), result.status_code
 
 
 @leads_blueprint.get('/lab')

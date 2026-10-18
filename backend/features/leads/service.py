@@ -21,6 +21,48 @@ class LeadCreationResult:
     status_code: int
 
 
+@dataclass(frozen=True)
+class LeadStatusUpdateResult:
+    payload: dict
+    status_code: int
+
+
+def update_lead_status(
+    db: Session,
+    lead_id: str,
+    status: str,
+    user_visibility_filters: list,
+) -> LeadStatusUpdateResult:
+    lead = db.scalar(
+        select(Lead)
+        .where(Lead.id == lead_id, *user_visibility_filters)
+        .with_for_update()
+    )
+    if lead is None:
+        return LeadStatusUpdateResult(
+            payload={'error': 'Lead não encontrado.'},
+            status_code=404,
+        )
+
+    event_at = datetime.now(timezone.utc)
+    lead.status = status
+    db.add(Event(
+        lead_id=lead.id,
+        status=status,
+        event_at=event_at,
+    ))
+    db.flush()
+
+    return LeadStatusUpdateResult(
+        payload={
+            'id': lead.id,
+            'status': lead.status,
+            'eventAt': event_at.isoformat(),
+        },
+        status_code=200,
+    )
+
+
 def create_lead(db: Session, clean_payload: dict, idempotency_key: str) -> LeadCreationResult:
     """Cria o lead e o resto do cadastro junto, na mesma transação."""
     payload_hash = calculate_payload_hash(clean_payload)

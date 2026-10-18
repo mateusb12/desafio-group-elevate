@@ -248,7 +248,7 @@ Controles da integração:
 - [x] Conectar a configuração de pesos ao backend, substituindo localStorage.
 - [x] Implementar filtros no backend.
 - [x] Implementar paginação no backend.
-- [ ] Criar consulta de detalhes e atualização de status para operadores.
+- [x] Criar consulta de detalhes e atualização de status para operadores.
 
 A lista consulta leads reais por `GET /api/leads`:
 
@@ -256,6 +256,9 @@ A lista consulta leads reais por `GET /api/leads`:
 - OPERATOR vê apenas os leads do próprio call center, **com restrição no backend**.
 - A tela envia os filtros por período, produto, funil, origem, centro, status e busca para o backend.
 - A API aplica paginação no banco e devolve metadados com total de leads e páginas.
+- `GET /api/leads/<id>` retorna os dados do lead e o histórico de eventos.
+- `PATCH /api/leads/<id>/status` atualiza o status e registra um novo evento na mesma transação.
+- O backend restringe consulta e alteração de operadores ao próprio call center; leads fora do escopo retornam `404`.
 
 ## 20–22. Autenticação, autorização e segurança
 
@@ -278,7 +281,7 @@ Controles implementados:
 - [x] Reexecutar os testes após as mudanças de idempotência e migrations 001–007.
 - [ ] Ampliar testes de autorização e isolamento por call center.
 - [x] Adicionar testes das APIs de métricas, pesos e filtros.
-- [ ] Adicionar testes de atendimento quando a atualização de status for criada.
+- [x] Adicionar testes de detalhe, atualização de status e isolamento por call center.
 
 O LAB:
 

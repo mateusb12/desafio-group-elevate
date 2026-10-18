@@ -1,4 +1,5 @@
-import type { Lead, LeadFacets, LeadFilters, LeadStatus, LeadsPage } from './leads.types'
+import type { Lead, LeadDetails, LeadFacets, LeadFilters, LeadStatus, LeadsPage } from './leads.types'
+import { csrfHeaders } from '../auth/auth.service'
 
 export const statusLabels: Record<LeadStatus, string> = {
   new: 'Novo',
@@ -37,4 +38,28 @@ export async function listLeads(filters: LeadFilters, page: number, pageSize: nu
   }
 
   return { leads: body.leads, filters: body.filters, pagination: body.pagination }
+}
+
+export async function getLeadDetails(id: string): Promise<LeadDetails> {
+  const response = await fetch(`/api/api/leads/${encodeURIComponent(id)}`, {
+    credentials: 'same-origin',
+  })
+  const body = await response.json() as LeadDetails & { error?: string }
+  if (!response.ok) throw new Error(body.error ?? 'Não foi possível carregar os detalhes do lead.')
+  if (!Array.isArray(body.events)) throw new Error('Resposta inválida dos detalhes do lead.')
+  return body
+}
+
+export async function updateLeadStatus(id: string, status: LeadStatus): Promise<void> {
+  const response = await fetch(`/api/api/leads/${encodeURIComponent(id)}/status`, {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      ...csrfHeaders(),
+    },
+    body: JSON.stringify({ status }),
+  })
+  const body = await response.json() as { error?: string }
+  if (!response.ok) throw new Error(body.error ?? 'Não foi possível atualizar o status.')
 }
