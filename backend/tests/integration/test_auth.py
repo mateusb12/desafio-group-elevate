@@ -171,6 +171,60 @@ class AuthIntegrationTests(unittest.TestCase):
             },
         )
 
+    def test_dispatcher_weights_are_admin_only_and_persistent(self):
+        self.assertEqual(
+            self.client.get("/api/dispatcher/weights").status_code,
+            401,
+        )
+        self.assertEqual(self.login().status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/dispatcher/weights").status_code,
+            403,
+        )
+
+        self.client = self.app.test_client()
+        self.assertEqual(
+            self.login(email="admin@elevate.dev").status_code,
+            200,
+        )
+        response = self.client.get("/api/dispatcher/weights")
+        self.assertEqual(response.status_code, 200)
+        original = response.get_json()["allocations"]
+        csrf = self.client.get_cookie("csrf_access_token")
+
+        invalid = self.client.put(
+            "/api/dispatcher/weights",
+            json={"allocations": [{"id": "call-center-a", "percentage": 100}]},
+            headers={"X-CSRF-TOKEN": csrf.value},
+        )
+        self.assertEqual(invalid.status_code, 400)
+
+        updated = [
+            {"id": "call-center-a", "percentage": 45},
+            {"id": "call-center-b", "percentage": 35},
+            {"id": "call-center-c", "percentage": 20},
+        ]
+        try:
+            response = self.client.put(
+                "/api/dispatcher/weights",
+                json={"allocations": updated},
+                headers={"X-CSRF-TOKEN": csrf.value},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                {
+                    item["id"]: item["percentage"]
+                    for item in response.get_json()["allocations"]
+                },
+                {item["id"]: item["percentage"] for item in updated},
+            )
+        finally:
+            self.client.put(
+                "/api/dispatcher/weights",
+                json={"allocations": original},
+                headers={"X-CSRF-TOKEN": csrf.value},
+            )
+
     def test_inactive_user_cannot_login(self):
         from sqlalchemy import select
         from features.auth.models import User

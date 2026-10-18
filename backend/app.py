@@ -8,6 +8,7 @@ from sqlalchemy import select
 from features.auth import auth_blueprint
 from features.auth.models import TokenBlocklist
 from features.auth.service import seed_demo_users
+from features.dispatcher import dispatcher_blueprint
 from features.dispatcher import models as dispatcher_models  # noqa: F401
 from features.dashboard import dashboard_blueprint
 from features.leads import leads_blueprint
@@ -41,6 +42,7 @@ def create_app() -> Flask:
 
     app.register_blueprint(auth_blueprint)
     app.register_blueprint(dashboard_blueprint)
+    app.register_blueprint(dispatcher_blueprint)
     app.register_blueprint(leads_blueprint)
     app.register_blueprint(catalog_blueprint)
     app.register_blueprint(webhooks_blueprint)

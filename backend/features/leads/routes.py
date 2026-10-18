@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
 from features.auth.models import User, UserRole
+from features.auth.permissions import admin_required
 from shared.database import db_session
 from .idempotency import (
     acquire_idempotency_lock,
@@ -227,18 +228,9 @@ def list_leads():
 
 @leads_blueprint.get('/lab')
 @jwt_required()
+@admin_required(forbidden_message='Acesso restrito ao administrador.')
 def list_lab_leads():
     with db_session() as db:
-        user = db.scalar(
-            select(User).where(
-                User.id == get_jwt_identity(),
-                User.is_active.is_(True),
-            )
-        )
-
-        if user is None or user.role != UserRole.ADMIN:
-            return jsonify(error='Acesso restrito ao administrador.'), 403
-
         lead_ids = db.scalars(
             select(Lead.id)
             .order_by(Lead.received_at.desc())
@@ -250,17 +242,9 @@ def list_lab_leads():
 
 @leads_blueprint.delete('/lab')
 @jwt_required()
+@admin_required(forbidden_message='Apenas administradores podem limpar os leads do LAB.')
 def clear_lab_leads():
     with db_session() as db:
-        user = db.scalar(
-            select(User).where(
-                User.id == get_jwt_identity(),
-                User.is_active.is_(True),
-            )
-        )
-        if user is None or user.role != UserRole.ADMIN:
-            return jsonify(error='Apenas administradores podem limpar os leads do LAB.'), 403
-
         deleted = db.execute(delete(Lead)).rowcount or 0
         db.execute(delete(Contact))
         db.commit()

@@ -57,6 +57,9 @@ As migrations fazem backfill de referências legadas antes de criar as FKs.
 - `POST /auth/logout` revoga o token atual
 - `GET /dashboard/metrics` retorna as métricas reais do dashboard para usuários
   administradores;
+- `GET /api/dispatcher/weights` lê os pesos dos call centers;
+- `PUT /api/dispatcher/weights` atualiza todos os pesos atomicamente, somente
+  para administradores, exigindo soma de 100%;
 - `GET /api/products`, `GET /api/funnels` e `GET /api/product-funnels` expõem os
   catálogos ativos usados pelo LAB;
 - `POST /api/leads` valida a associação produto/funil ativa e registra a

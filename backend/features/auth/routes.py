@@ -2,26 +2,16 @@ from flask import jsonify, request
 from flask_jwt_extended import (
     create_access_token,
     get_jwt,
-    get_jwt_identity,
     jwt_required,
     set_access_cookies,
     unset_jwt_cookies,
 )
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from shared.database import db_session
 
 from . import auth_blueprint
-from .models import TokenBlocklist, User
+from .models import TokenBlocklist
+from .permissions import current_user
 from .service import authenticate, user_payload
-
-
-def current_user(db: Session) -> User | None:
-    user_id = get_jwt_identity()
-    if not user_id:
-        return None
-    return db.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
 
 
 @auth_blueprint.post("/login")

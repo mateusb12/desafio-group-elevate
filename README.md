@@ -235,7 +235,7 @@ Controles da integração:
 
 - [x] Listar leads reais com filtros e paginação demonstrativos no frontend.
 - [x] Criar endpoint de métricas reais para o dashboard.
-- [ ] Criar API de leitura e alteração dos pesos de distribuição.
+- [x] Criar API de leitura e alteração dos pesos de distribuição.
 - [ ] Conectar a configuração de pesos ao backend, substituindo localStorage.
 - [ ] Implementar filtros no backend.
 - [ ] Implementar paginação no backend.

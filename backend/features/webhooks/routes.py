@@ -18,7 +18,7 @@ from pydantic import (
     field_validator,
 )
 
-from features.auth.models import User, UserRole
+from features.auth.permissions import require_admin
 from shared.database import db_session
 from features.leads.models import Event, Lead
 
@@ -50,16 +50,6 @@ def has_valid_webhook_key(configured_key, supplied_key):
     return bool(configured_key) and hmac.compare_digest(
         configured_key,
         supplied_key,
-    )
-
-
-def is_active_admin(db, user_id):
-    """Verifica se o usuário está ativo e é administrador."""
-    user = db.get(User, user_id)
-    return bool(
-        user
-        and user.is_active
-        and user.role == UserRole.ADMIN
     )
 
 
@@ -138,10 +128,12 @@ def callcenter_webhook():
             return jsonify(error='Webhook não autorizado.'), 401
 
         with db_session() as db:
-            if not is_active_admin(db, user_id):
-                return jsonify(
-                    error='Apenas administradores podem simular webhooks.'
-                ), 403
+            authorization_error = require_admin(
+                db,
+                forbidden_message='Apenas administradores podem simular webhooks.',
+            )
+            if authorization_error:
+                return authorization_error
 
     if not request.is_json:
         return jsonify(error='Envie JSON.'), 415
