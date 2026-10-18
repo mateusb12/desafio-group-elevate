@@ -15,6 +15,7 @@ from features.leads import leads_blueprint
 from features.leads.products import catalog_blueprint
 from features.leads import models as leads_models  # noqa: F401
 from features.webhooks import webhooks_blueprint
+from features.lab import lab_blueprint
 from shared.database import db_session
 from shared.demo import reset_and_seed_demo
 
@@ -46,6 +47,7 @@ def create_app() -> Flask:
     app.register_blueprint(leads_blueprint)
     app.register_blueprint(catalog_blueprint)
     app.register_blueprint(webhooks_blueprint)
+    app.register_blueprint(lab_blueprint)
 
     @app.get("/")
     def hello():

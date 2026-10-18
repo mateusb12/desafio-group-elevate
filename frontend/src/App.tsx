@@ -8,13 +8,19 @@ import { LeadsPage } from './features/leads/LeadsPage'
 import { DispatcherPage } from './features/dispatcher/DispatcherPage'
 import { LabPage } from './features/lab/LabPage'
 import { LabWebhooksPage } from './features/lab/LabWebhooksPage'
+import { LabDeliveriesPage } from './features/lab/LabDeliveriesPage'
 
-type Section = 'dashboard' | 'leads' | 'dispatcher' | 'lab' | 'lab-webhooks'
+type Section = 'dashboard' | 'leads' | 'dispatcher' | 'lab' | 'lab-webhooks' | 'lab-deliveries'
 
 function App() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
   const [sessionChecked, setSessionChecked] = useState(false)
   const [darkMode, setDarkMode] = useState(true)
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode)
+  }, [darkMode])
+
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -37,9 +43,7 @@ function App() {
   }
 
   function toggleTheme() {
-    const nextDarkMode = !darkMode
-    setDarkMode(nextDarkMode)
-    document.documentElement.classList.toggle('dark', nextDarkMode)
+    setDarkMode((current) => !current)
   }
 
   const defaultPath = user?.role === 'ADMIN' ? '/dashboard' : '/leads'
@@ -56,6 +60,7 @@ function App() {
         <Route path="dispatcher" element={user?.role === 'ADMIN' ? <DispatcherPage /> : <Navigate to="/leads" replace />} />
         <Route path="lab" element={user?.role === 'ADMIN' ? <LabPage /> : <Navigate to="/leads" replace />} />
         <Route path="lab/webhooks" element={user?.role === 'ADMIN' ? <LabWebhooksPage /> : <Navigate to="/leads" replace />} />
+        <Route path="lab/deliveries" element={user?.role === 'ADMIN' ? <LabDeliveriesPage /> : <Navigate to="/leads" replace />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? defaultPath : '/login'} replace />} />
     </Routes>
@@ -105,6 +110,7 @@ function Sidebar({
     ? [
         { id: 'lab', label: 'Leads', to: '/lab' },
         { id: 'lab-webhooks', label: 'Webhooks', to: '/lab/webhooks' },
+        { id: 'lab-deliveries', label: 'Entregas', to: '/lab/deliveries' },
       ]
     : []
 

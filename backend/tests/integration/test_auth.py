@@ -3,6 +3,8 @@ import time
 import unittest
 from datetime import timedelta
 from uuid import uuid4
+from unittest.mock import patch
+from urllib.error import URLError
 
 from psycopg import connect, sql
 from sqlalchemy.engine import make_url
@@ -171,6 +173,71 @@ class AuthIntegrationTests(unittest.TestCase):
                 "conversionRate",
             },
         )
+
+    def test_lab_deliveries_are_admin_only_and_have_real_counters(self):
+        self.assertEqual(self.client.get('/api/lab/deliveries').status_code, 401)
+
+        self.assertEqual(self.login().status_code, 200)
+        self.assertEqual(self.client.get('/api/lab/deliveries').status_code, 403)
+
+        self.client = self.app.test_client()
+        self.assertEqual(self.login(email='admin@elevate.dev').status_code, 200)
+        marker = uuid4().hex
+        response = self.client.post(
+            '/api/leads',
+            json={
+                'name': f'LAB {marker}',
+                'email': f'{marker}@example.com',
+                'phone': '+5585990000999',
+                'product': 'nutralean',
+                'funnel': 'vsl-01',
+                'source': 'lab-deliveries-test',
+                'campaign': marker,
+                'affiliate_id': f'lab-{marker}',
+                'utm': {'source': 'test', 'medium': 'test', 'campaign': marker, 'content': 'test'},
+            },
+            headers={'Idempotency-Key': str(uuid4())},
+        )
+        self.assertEqual(response.status_code, 201, response.get_json())
+
+        response = self.client.get('/api/lab/deliveries?page=1&pageSize=1')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(len(body['deliveries']), 1)
+        self.assertEqual(body['counters']['total'], body['pagination']['total'])
+        self.assertEqual(
+            body['counters']['pending'] + body['counters']['published'],
+            body['counters']['total'],
+        )
+        self.assertEqual(body['deliveries'][0]['state'], 'pending')
+        self.assertIsNone(body['deliveries'][0]['publishedAt'])
+
+    def test_lab_health_is_partial_when_one_simulator_is_unavailable(self):
+        self.assertEqual(self.login(email='admin@elevate.dev').status_code, 200)
+
+        class HealthyResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def fake_urlopen(url, timeout):
+            self.assertLessEqual(timeout, 1)
+            if '8101' in url:
+                raise URLError('simulador parado')
+            return HealthyResponse()
+
+        with patch('features.lab.routes.urlopen', side_effect=fake_urlopen):
+            response = self.client.get('/api/lab/health')
+
+        self.assertEqual(response.status_code, 200)
+        services = {item['id']: item for item in response.get_json()['services']}
+        self.assertEqual(services['call-center-a']['state'], 'unavailable')
+        self.assertEqual(services['call-center-b']['state'], 'available')
+        self.assertEqual(services['call-center-c']['state'], 'available')
 
     def test_dispatcher_weights_are_admin_only_and_persistent(self):
         self.assertEqual(
