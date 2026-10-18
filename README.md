@@ -20,7 +20,7 @@ Contas demo (senha `demo123`): `admin@elevate.dev` (ADMIN), `ana@logicall.exampl
 
 ## 5. Aplicação e arquitetura
 
-- [x] Tópico concluído.
+- [x] Integrar frontend, API e PostgreSQL com atribuição persistida.
 
 Stack e fluxo principal:
 
@@ -32,7 +32,7 @@ Stack e fluxo principal:
 
 ## 6–7. Recebimento e validação
 
-- [x] Tópico concluído.
+- [x] Receber, validar e persistir leads, incluindo rastreamento e respostas HTTP.
 
 `POST /api/leads` recebe:
 
@@ -52,7 +52,7 @@ Validações e respostas:
 
 ## 8. Duplicidade e idempotência
 
-- [x] Tópico concluído.
+- [x] Identificar reenvios por Idempotency-Key, com unicidade e proteção concorrente.
 
 A identidade do cadastro vem do header **`Idempotency-Key` (UUID v4)**, criado pelo remetente.
 
@@ -74,7 +74,9 @@ A unicidade da chave é garantida no banco. Um `pg_advisory_xact_lock` derivado 
 
 ## 9. Banco de dados
 
-- [ ] Tópico parcialmente concluído: faltam migrations e a modelagem de algumas entidades previstas no teste.
+- [x] Persistir contatos, leads, call centers, usuários e histórico de eventos.
+- [ ] Versionar alterações do schema com migrations.
+- [ ] Avaliar modelagem relacional própria para Product, Funnel, Affiliate e Distribution, conforme o PDF.
 
 Principais tabelas:
 
@@ -86,11 +88,13 @@ Principais tabelas:
 
 **Estado atual e simplificação consciente:** `Product`, `Funnel`, `Affiliate` e `Distribution` ainda não existem como entidades/tabelas próprias. Produto, funil e afiliado são campos em `leads`, e a distribuição é representada diretamente por `leads.call_center_id`.
 
-**Pendente:** versionar o schema com migrations (o projeto ainda utiliza inicialização automática do schema).
-
 ## 10. Índices
 
-- [ ] Tópico pendente: existem apenas índices básicos derivados do ORM e constraints; falta estratégia baseada em consultas e medição.
+- [x] Manter índices básicos e constraints de integridade declarados no ORM.
+- [ ] Mapear as consultas reais e seus filtros/ordenação.
+- [ ] Medir planos de consulta com EXPLAIN ANALYZE.
+- [ ] Avaliar índices compostos com base nas medições.
+- [ ] Documentar a justificativa dos índices escolhidos.
 
 Há apenas índices básicos declarados no modelo, além dos índices implícitos das PKs e constraints únicas:
 
@@ -101,16 +105,9 @@ Há apenas índices básicos declarados no modelo, além dos índices implícito
 - `leads.idempotency_key` (UNIQUE);
 - `events (lead_id, external_id)` (UNIQUE).
 
-Isso **não representa uma estratégia de índices concluída**. Ainda falta:
-
-- Levantar as consultas reais e seus padrões de filtragem/ordenação.
-- Medir os planos com `EXPLAIN ANALYZE`.
-- Avaliar índices compostos, como `(call_center_id, received_at)`, quando a filtragem e a paginação forem movidas para o backend.
-- Documentar a justificativa de cada índice e evitar adicionar índices sem medição.
-
 ## 11. Escalabilidade do banco
 
-- [x] Tópico documentado; as evoluções descritas ainda não estão implementadas.
+- [x] Documentar a evolução prevista para 100 mil, 1 milhão e mais de 10 milhões de leads.
 
 Estratégia por volume:
 
@@ -127,7 +124,7 @@ Possíveis evoluções:
 
 ## 12. Lead Dispatcher
 
-- [x] Tópico concluído.
+- [x] Distribuir e persistir leads com déficit ponderado (50/30/20).
 
 Pesos atuais:
 
@@ -145,7 +142,8 @@ Essa abordagem mantém a proporção mais estável em amostras pequenas do que s
 
 ## 13. Concorrência
 
-- [x] Tópico concluído.
+- [x] Proteger a decisão do dispatcher com advisory lock transacional.
+- [x] Validar concorrência real com 100 cadastros.
 
 O dispatcher:
 
@@ -157,7 +155,7 @@ O dispatcher:
 
 ## 14. Webhook do call center
 
-- [x] Tópico concluído.
+- [x] Validar webhooks, registrar histórico e atualizar o status quando aplicável.
 
 `POST /api/webhooks/callcenter` aceita:
 
@@ -172,7 +170,7 @@ O evento é registrado no histórico e pode atualizar o status atual.
 
 ## 15. Webhook duplicado
 
-- [x] Tópico concluído.
+- [x] Deduplicar eventos por (lead_id, external_id) e tratar conflitos.
 
 Um acontecimento é identificado por **`(lead_id, external_id)`**:
 
@@ -184,7 +182,7 @@ O banco também impõe `UNIQUE(lead_id, external_id)`. O `SELECT ... FOR UPDATE`
 
 ## 16. Eventos fora de ordem
 
-- [x] Tópico concluído.
+- [x] Persistir eventos atrasados sem regredir o status atual.
 
 Eventos inéditos atrasados entram no histórico, mas **só alteram `leads.status` se `event_at` superar o último horário registrado**.
 
@@ -192,7 +190,7 @@ Por exemplo, um `contacted` das 14h não desfaz uma `sale` das 14h30 recebida pr
 
 ## 17. Segurança do webhook
 
-- [x] Tópico concluído dentro da estratégia atual; rate limiting ainda não existe.
+- [x] Proteger o webhook com API key ou autenticação administrativa.
 
 Controles da integração:
 
@@ -204,7 +202,13 @@ Controles da integração:
 
 ## 18–19. Dashboard, lista e filtros
 
-- [ ] Tópico parcialmente concluído: dashboard e pesos são demonstrativos, e filtros/paginação ainda são locais.
+- [x] Listar leads reais com filtros e paginação demonstrativos no frontend.
+- [ ] Criar endpoint de métricas reais para o dashboard.
+- [ ] Criar API de leitura e alteração dos pesos de distribuição.
+- [ ] Conectar a configuração de pesos ao backend, substituindo localStorage.
+- [ ] Implementar filtros no backend.
+- [ ] Implementar paginação no backend.
+- [ ] Criar consulta de detalhes e atualização de status para operadores.
 
 A lista consulta leads reais por `GET /api/leads`:
 
@@ -213,11 +217,11 @@ A lista consulta leads reais por `GET /api/leads`:
 - A tela oferece filtros por período, produto, funil, origem, centro e status, mas aplica todos localmente depois de carregar a lista completa.
 - A paginação também é local, com cinco itens por página.
 
-**Pendências:** não há endpoint de métricas para o dashboard; a edição de pesos usa somente `localStorage`; não há filtros ou paginação server-side; e não há endpoints para abrir detalhes ou atualizar o status de leads pelo operador.
-
 ## 20–22. Autenticação, autorização e segurança
 
-- [ ] Tópico parcialmente concluído: autenticação e autorização básica existem, mas faltam rate limiting e proteção completa contra brute force.
+- [x] Autenticar com JWT/CSRF e validar permissões por perfil no backend.
+- [ ] Implementar rate limiting e proteção contra brute force.
+- [ ] Preparar configurações seguras de produção (HTTPS, cookie Secure, segredo forte).
 
 Controles implementados:
 
@@ -228,11 +232,12 @@ Controles implementados:
 - Access token com duração de 15 minutos.
 - Perfil conferido pelo backend nas rotas, sem depender apenas das telas ocultas.
 
-Para produção, ainda seriam necessários HTTPS, `JWT_COOKIE_SECURE=1`, segredo forte e medidas contra tentativas repetidas. **Rate limiting e proteção completa contra brute force não estão implementados.**
-
 ## 23. Testes e LAB
 
-- [ ] Tópico parcialmente concluído: há testes de núcleo e concorrência, mas ainda faltam coberturas de APIs e fluxos que não foram implementados.
+- [x] Cobrir autenticação, validação, dispatcher e cenários concorrentes de webhook.
+- [ ] Reexecutar toda a suíte após a mudança de idempotência.
+- [ ] Ampliar testes de autorização e isolamento por call center.
+- [ ] Adicionar testes das APIs de métricas, pesos, filtros e atendimento quando criadas.
 
 O LAB:
 
@@ -252,8 +257,6 @@ Os testes existentes cobrem:
 
 As suítes de integração também verificam concorrência real no PostgreSQL, incluindo espera por advisory lock do dispatcher e `FOR UPDATE` nos webhooks. Os registros temporários são limpos.
 
-Ainda faltam testes específicos para as APIs de dashboard, configuração do dispatcher, filtros/paginação server-side e atualização de status pelo operador, porque essas APIs ainda não existem.
-
 ```bash
 docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
@@ -262,7 +265,8 @@ As verificações de persistência usadas nos testes consultam diretamente o Pos
 
 ## 27–28. Priorização, limitações e stack
 
-- [ ] Tópico parcialmente concluído: a priorização está documentada, mas há pendências funcionais e de infraestrutura listadas abaixo.
+- [x] Priorizar o núcleo e justificar a stack sem infraestrutura desnecessária.
+- [ ] Opcional: adicionar observabilidade conforme a necessidade medida.
 
 Prioridades da implementação:
 
@@ -273,27 +277,11 @@ Prioridades da implementação:
 
 Stack escolhida por familiaridade e baixo custo operacional: Flask, SQLAlchemy, PostgreSQL, Pydantic, React, TypeScript, Vite, Docker Compose e uv.
 
-Pendências confirmadas na codebase:
-
-- Migrations;
-- Modelagem de produto, funil, afiliado e distribuição como entidades, se o escopo exigir esses relacionamentos;
-- Estratégia e medição de índices;
-- Paginação server-side;
-- Filtros server-side;
-- Endpoint de métricas do dashboard;
-- API persistente para configuração dos pesos;
-- Detalhe e atualização de leads para operadores;
-- Métricas reais;
-- Persistência das configurações de pesos pela interface;
-- Testes adicionais de autorização;
-- Rate limiting e proteção contra brute force;
-- Observabilidade.
-
 Evitei infraestrutura extra sem necessidade comprovada.
 
 ## Como usei IA (item 3)
 
-- [x] Tópico concluído.
+- [x] Documentar decisões, correções, limitações e validações realizadas com IA.
 
 Usei ChatGPT para discutir alternativas, revisar código e construir testes. Exemplos em que **revisei ou corrigi a saída**:
 
@@ -306,21 +294,14 @@ Usei ChatGPT para discutir alternativas, revisar código e construir testes. Exe
 
 A IA acelerou o trabalho, mas não foi tratada como validação. Os artefatos de instruções/planos devem acompanhar o histórico Git (item 25).
 
-## Estado real da implementação
+## Visão geral
 
-Esta tabela foi conferida contra a codebase atual. “Demonstrativo” significa que a tela existe, mas ainda usa dados locais ou simulados; não significa que exista uma API equivalente no backend.
-
-| Área | Situação atual |
+| Área (itens do PDF) | Situação |
 | --- | --- |
-| Recebimento de leads | Funcional no backend, com validação Pydantic, persistência, contato normalizado e respostas HTTP básicas. |
-| Idempotência | Funcional no backend, com `Idempotency-Key`, hash do payload, constraint única e lock por chave. |
-| Dispatcher | Funcional no recebimento, com pesos semeados no banco, seleção por déficit ponderado e lock transacional. |
-| Webhook | Funcional no backend, com validação, histórico, deduplicação, eventos fora de ordem e proteção por chave/admin. |
-| Autenticação | Funcional para login, `/me`, logout, cookies JWT, CSRF e revogação de tokens. |
-| Dashboard | Demonstrativo: métricas fixas retornadas por `dashboard.service.ts`; não há endpoint de métricas. |
-| Configuração do dispatcher | Demonstrativa: leitura e gravação em `localStorage`; não altera os pesos do banco. |
-| Lista de leads | Consulta dados reais, mas filtros e paginação são feitos no React após carregar toda a lista. |
-| Atendimento do operador | Ainda não há endpoint/tela para abrir detalhes ou atualizar o status de um lead. |
-| Schema e migrations | O schema é criado com `Base.metadata.create_all`; migrations ainda não existem. |
-| Índices | Há índices básicos derivados de `index=True`, PKs, FKs e constraints únicas; ainda não há estratégia medida com planos de consulta. |
-| Rate limiting e brute force | Não implementados. |
+| Arquitetura, recebimento e idempotência (5–8) | Concluído |
+| Banco, índices e escala (9–11) | Parcial; escalabilidade documentada |
+| Dispatcher e webhooks (12–17) | Concluído |
+| Interface, segurança e testes (18–23) | Parcial |
+| Priorização e evolução (27–28) | Planejado e documentado |
+
+As **checklists de cada seção numerada** são a referência para acompanhar as pendências, sem duplicá-las aqui.
