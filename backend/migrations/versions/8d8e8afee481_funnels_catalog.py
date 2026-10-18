@@ -1,4 +1,4 @@
-"""funnels catalog
+"""Catálogo de funis
 
 Revision ID: 8d8e8afee481
 Revises: 7d60ca39771c

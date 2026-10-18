@@ -1,4 +1,4 @@
-"""affiliates catalog
+"""Catálogo de afiliados
 
 Revision ID: 0bda134cf9ef
 Revises: 86146211b9cf

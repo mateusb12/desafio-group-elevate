@@ -1,4 +1,4 @@
-"""product funnel associations
+"""Associações entre produtos e funis
 
 Revision ID: 86146211b9cf
 Revises: 8d8e8afee481

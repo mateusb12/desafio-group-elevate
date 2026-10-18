@@ -1,4 +1,4 @@
-"""lead statuses catalog
+"""Catálogo de status de leads
 
 Revision ID: a6216ea51477
 Revises: 0bda134cf9ef

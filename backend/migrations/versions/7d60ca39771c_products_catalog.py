@@ -1,4 +1,4 @@
-"""products catalog
+"""Catálogo de produtos
 
 Revision ID: 7d60ca39771c
 Revises: d86498fb27a3

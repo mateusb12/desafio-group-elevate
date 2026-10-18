@@ -1,4 +1,4 @@
-"""lead distributions
+"""Distribuições de leads
 
 Revision ID: 0e888542f563
 Revises: a6216ea51477
