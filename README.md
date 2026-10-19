@@ -200,24 +200,20 @@ para migrar os dados existentes.
 - [ ] Avaliar índices compostos com base nas medições.
 - [x] Documentar a justificativa dos índices escolhidos.
 
-Há apenas índices básicos declarados no modelo, além dos índices implícitos das PKs e constraints únicas:
+O banco tem índices nos campos mais usados nas consultas:
 
-- `contacts.email` (UNIQUE);
-- `leads.contact_id` (`index=True`);
-- `leads.call_center_id` (`index=True`);
-- `events.lead_id` (`index=True`);
-- `leads.idempotency_key` (UNIQUE);
-- `events (lead_id, external_id)` (UNIQUE);
-- `distributions (lead_id, assigned_at)` para histórico de atribuições.
+- e-mail do contato;
+- contato e call center do lead;
+- lead dos eventos;
+- chave de idempotência;
+- identificação externa dos eventos;
+- histórico de distribuição por lead e data.
 
-As consultas principais são `GET /api/leads`, que filtra por busca, período,
-produto, funil, origem, call center e status, ordena por `received_at` e `id`
-e pagina no banco; `GET /api/dashboard/metrics`, que agrega leads por período
-e status; e a consulta do histórico de `distributions` por lead e data. Os
-índices de chaves estrangeiras apoiam os joins e filtros por relacionamento,
-as constraints UNIQUE evitam duplicidades e o índice composto de
-`distributions` apoia a ordenação do histórico por lead. Índices compostos
-adicionais só serão considerados depois de medir os planos reais.
+Esses índices ajudam nas buscas, nos filtros e na consulta do histórico. As
+regras de campo único também evitam cadastros e eventos repetidos.
+
+Ainda não foram criados índices extras. Isso será avaliado depois de medir o
+desempenho das consultas reais com `EXPLAIN ANALYZE`.
 
 ## 11. Escalabilidade do banco
 
