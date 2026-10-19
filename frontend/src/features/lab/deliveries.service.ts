@@ -36,6 +36,7 @@ export type RabbitMqHealth = {
 }
 
 async function readJson<T extends object>(response: Response): Promise<T> {
+  if (response.status === 401) window.dispatchEvent(new Event('auth-expired'))
   const body = await response.json() as T
   const error = 'error' in body && typeof body.error === 'string' ? body.error : 'Falha ao consultar o LAB.'
   if (!response.ok) throw new Error(error)
