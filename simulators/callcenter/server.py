@@ -26,6 +26,11 @@ def open_delivery_db() -> sqlite3.Connection:
     return connection
 
 
+def accepted_delivery_count() -> int:
+    with open_delivery_db() as connection:
+        return connection.execute("SELECT COUNT(*) FROM accepted_deliveries").fetchone()[0]
+
+
 def response_payload(**values: Any) -> bytes:
     return json.dumps(values, ensure_ascii=False).encode("utf-8")
 
@@ -44,6 +49,7 @@ class CallCenterHandler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "call_center": CALL_CENTER_NAME,
                 "call_center_id": CALL_CENTER_ID,
+                "acceptedCount": accepted_delivery_count(),
             },
         )
 
@@ -80,6 +86,16 @@ class CallCenterHandler(BaseHTTPRequestHandler):
                 "event_id": event_id,
             },
         )
+
+    def do_DELETE(self) -> None:
+        if self.path != "/deliveries":
+            self._send_json(404, {"error": "not_found"})
+            return
+
+        with open_delivery_db() as connection:
+            deleted = connection.execute("DELETE FROM accepted_deliveries").rowcount
+            connection.commit()
+        self._send_json(200, {"status": "ok", "deleted": deleted})
 
     def _read_lead(self) -> dict[str, Any] | None:
         content_type = self.headers.get_content_type()

@@ -82,6 +82,7 @@ services:
       OUTBOX_RETRY_INITIAL_SECONDS: "1"
       OUTBOX_RETRY_MAX_SECONDS: "30"
       OUTBOX_HEALTH_PORT: "8091"
+      OUTBOX_DB_PATH: "/data/outbox.sqlite3"
     depends_on:
       db:
         condition: service_healthy
@@ -90,6 +91,7 @@ services:
     command: python -m features.outbox.publisher
     volumes:
       - ./backend:/app
+      - outbox_service_data:/data
 
   delivery-worker:
     build: ./backend
@@ -106,6 +108,7 @@ services:
       DELIVERY_RETRY_INITIAL_SECONDS: "1"
       DELIVERY_RETRY_MAX_SECONDS: "30"
       DELIVERY_WORKER_HEALTH_PORT: "8092"
+      DELIVERY_WORKER_DB_PATH: "/data/worker.sqlite3"
     depends_on:
       db:
         condition: service_healthy
@@ -116,6 +119,7 @@ services:
     command: python -m features.delivery_worker.worker
     volumes:
       - ./backend:/app
+      - delivery_worker_data:/data
 
   frontend:
     build: ./frontend
@@ -184,3 +188,5 @@ volumes:
   logicall_deliveries:
   salesbound_deliveries:
   atendemais_deliveries:
+  delivery_worker_data:
+  outbox_service_data:

@@ -24,6 +24,9 @@ export type ServiceHealth = {
   httpStatus?: number
   error?: string
   processedCount?: number
+  publishedCount?: number
+  markedPublishedCount?: number
+  acceptedCount?: number
 }
 
 export type RabbitMqHealth = {

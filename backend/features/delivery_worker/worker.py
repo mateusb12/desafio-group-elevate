@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import signal
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,7 @@ LOGGER = logging.getLogger("delivery-worker")
 QUEUE_NAME = "lead.distributed"
 INVALID_QUEUE_NAME = "lead.distributed.invalid"
 HEALTH_PORT = int(os.getenv("DELIVERY_WORKER_HEALTH_PORT", "8092"))
+WORKER_DB_PATH = os.getenv("DELIVERY_WORKER_DB_PATH", "/tmp/delivery-worker.sqlite3")
 CALL_CENTER_URLS = {
     "call-center-a": os.getenv("LOGICALL_URL", "http://logicall:8101/leads"),
     "call-center-b": os.getenv("SALESBOUND_URL", "http://salesbound:8102/leads"),
@@ -212,19 +214,40 @@ class DeliveryWorker:
         self.retry_max = float(os.getenv("DELIVERY_RETRY_MAX_SECONDS", "30"))
         self.workers = int(os.getenv("DELIVERY_WORKERS", "8"))
         self.scheduler_interval = float(os.getenv("DELIVERY_SCHEDULER_INTERVAL_SECONDS", "1"))
+        self.database_path = os.getenv("DELIVERY_WORKER_DB_PATH", WORKER_DB_PATH)
         self._connection = None
         self._channel = None
-        self._processed_event_ids: set[str] = set()
         self._processed_lock = threading.Lock()
 
+    def _open_worker_processed_events_db(self) -> sqlite3.Connection:
+        os.makedirs(os.path.dirname(self.database_path) or ".", exist_ok=True)
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS processed_events "
+            "(event_id TEXT PRIMARY KEY, processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        connection.commit()
+        return connection
+
     def health_status(self) -> dict:
-        """Retorna liveness e a quantidade de eventos processados nesta execução."""
+        """Retorna liveness e a quantidade persistida de eventos processados."""
         with self._processed_lock:
-            return {"status": "ok", "processedCount": len(self._processed_event_ids)}
+            with self._open_worker_processed_events_db() as connection:
+                count = connection.execute("SELECT COUNT(*) FROM processed_events").fetchone()[0]
+            return {"status": "ok", "processedCount": count}
 
     def _mark_processed(self, event_id: str) -> None:
         with self._processed_lock:
-            self._processed_event_ids.add(event_id)
+            with self._open_worker_processed_events_db() as connection:
+                connection.execute("INSERT OR IGNORE INTO processed_events(event_id) VALUES (?)", (event_id,))
+                connection.commit()
+
+    def reset_processed(self) -> dict:
+        with self._processed_lock:
+            with self._open_worker_processed_events_db() as connection:
+                deleted = connection.execute("DELETE FROM processed_events").rowcount
+                connection.commit()
+            return {"status": "ok", "deleted": deleted}
 
     def stop(self, _signum=None, _frame=None) -> None:
         LOGGER.info("shutdown_requested")
@@ -444,7 +467,7 @@ class DeliveryWorker:
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     worker = DeliveryWorker()
-    health_server = start_health_server(HEALTH_PORT, worker.health_status)
+    health_server = start_health_server(HEALTH_PORT, worker.health_status, worker.reset_processed)
     signal.signal(signal.SIGTERM, worker.stop)
     signal.signal(signal.SIGINT, worker.stop)
     try:

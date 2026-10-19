@@ -119,7 +119,7 @@ def list_deliveries():
     )
 
 
-def _check_health(name: str, call_center_id: str, url: str) -> dict:
+def _check_call_center_health(name: str, call_center_id: str, url: str) -> dict:
     try:
         with urlopen(url, timeout=HEALTH_TIMEOUT_SECONDS) as response:
             status_code = response.status
@@ -130,12 +130,39 @@ def _check_health(name: str, call_center_id: str, url: str) -> dict:
                     "state": "unavailable",
                     "httpStatus": status_code,
                 }
-            return {
+            read_body = getattr(response, "read", None)
+            if read_body is None:
+                return {
+                    "name": name,
+                    "id": call_center_id,
+                    "state": "available",
+                    "httpStatus": status_code,
+                }
+            body = read_body(4096)
+            try:
+                payload = json.loads(body)
+            except (TypeError, ValueError):
+                return {
+                    "name": name,
+                    "id": call_center_id,
+                    "state": "unavailable",
+                }
+            accepted_count = payload.get("acceptedCount") if isinstance(payload, dict) else None
+            if accepted_count is not None and (not isinstance(accepted_count, int) or accepted_count < 0):
+                return {
+                    "name": name,
+                    "id": call_center_id,
+                    "state": "unavailable",
+                }
+            result = {
                 "name": name,
                 "id": call_center_id,
                 "state": "available",
                 "httpStatus": status_code,
             }
+            if accepted_count is not None:
+                result["acceptedCount"] = accepted_count
+            return result
     except (HTTPError, URLError, TimeoutError, OSError) as error:
         return {
             "name": name,
@@ -145,18 +172,24 @@ def _check_health(name: str, call_center_id: str, url: str) -> dict:
         }
 
 
-def _check_process_health(name: str, service_id: str, url: str) -> dict:
+def _check_internal_process_health(name: str, service_id: str, url: str) -> dict:
     try:
         with urlopen(url, timeout=HEALTH_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read(128))
             if response.status != 200 or not isinstance(payload, dict):
                 return {"name": name, "id": service_id, "state": "unavailable"}
             processed_count = payload.get("processedCount")
+            published_count = payload.get("publishedCount")
+            marked_published_count = payload.get("markedPublishedCount")
             if (
                 payload.get("status") != "ok"
                 or (
                     processed_count is not None
                     and (not isinstance(processed_count, int) or processed_count < 0)
+                )
+                or any(
+                    count is not None and (not isinstance(count, int) or count < 0)
+                    for count in (published_count, marked_published_count)
                 )
             ):
                 return {"name": name, "id": service_id, "state": "unavailable"}
@@ -168,6 +201,10 @@ def _check_process_health(name: str, service_id: str, url: str) -> dict:
             }
             if processed_count is not None:
                 result["processedCount"] = processed_count
+            if published_count is not None:
+                result["publishedCount"] = published_count
+            if marked_published_count is not None:
+                result["markedPublishedCount"] = marked_published_count
             return result
     except (HTTPError, URLError, TimeoutError, OSError, ValueError):
         return {"name": name, "id": service_id, "state": "unavailable"}
@@ -178,7 +215,7 @@ def _check_process_health(name: str, service_id: str, url: str) -> dict:
 @admin_required(forbidden_message="Acesso restrito ao administrador.")
 def health():
     with ThreadPoolExecutor(max_workers=len(CALL_CENTER_HEALTH)) as executor:
-        checks = list(executor.map(lambda item: _check_health(*item), CALL_CENTER_HEALTH))
+        checks = list(executor.map(lambda item: _check_call_center_health(*item), CALL_CENTER_HEALTH))
     return jsonify(services=checks)
 
 
@@ -193,11 +230,11 @@ def rabbitmq_health():
 @jwt_required()
 @admin_required(forbidden_message="Acesso restrito ao administrador.")
 def outbox_service_health():
-    return jsonify(_check_process_health(*PROCESS_HEALTH[0]))
+    return jsonify(_check_internal_process_health(*PROCESS_HEALTH[0]))
 
 
 @lab_blueprint.get("/delivery-worker/health")
 @jwt_required()
 @admin_required(forbidden_message="Acesso restrito ao administrador.")
 def delivery_worker_health():
-    return jsonify(_check_process_health(*PROCESS_HEALTH[1]))
+    return jsonify(_check_internal_process_health(*PROCESS_HEALTH[1]))

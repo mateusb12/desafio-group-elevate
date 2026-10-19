@@ -1,5 +1,6 @@
 import unittest
 import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -21,6 +22,7 @@ import features.delivery_worker.worker as delivery_worker_module
 class DeliveryWorkerTests(unittest.TestCase):
     def test_health_status_counts_unique_processed_events(self):
         worker = DeliveryWorker()
+        worker.database_path = os.path.join(tempfile.mkdtemp(), "worker.sqlite3")
 
         worker._mark_processed("event-1")
         worker._mark_processed("event-1")
@@ -30,6 +32,14 @@ class DeliveryWorkerTests(unittest.TestCase):
             worker.health_status(),
             {"status": "ok", "processedCount": 2},
         )
+
+    def test_reset_processed_clears_persisted_counter(self):
+        worker = DeliveryWorker()
+        worker.database_path = os.path.join(tempfile.mkdtemp(), "worker.sqlite3")
+        worker._mark_processed("event-1")
+
+        self.assertEqual(worker.reset_processed(), {"status": "ok", "deleted": 1})
+        self.assertEqual(worker.health_status()["processedCount"], 0)
 
     def payload(self, call_center_id="call-center-a"):
         return {

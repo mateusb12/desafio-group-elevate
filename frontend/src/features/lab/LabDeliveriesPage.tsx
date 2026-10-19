@@ -101,6 +101,12 @@ const flowIcons: Record<string, string> = {
   'Call center HTTP': '⌁',
 }
 
+const callCenterBarTone: Record<string, string> = {
+  'call-center-a': 'bg-indigo-400',
+  'call-center-b': 'bg-amber-400',
+  'call-center-c': 'bg-cyan-400',
+}
+
 export function LabDeliveriesPage() {
   const [selectedId, setSelectedId] = useState('outbox')
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
@@ -159,13 +165,22 @@ export function LabDeliveriesPage() {
   }, [refresh])
 
   const flow = useMemo(() => [
-    { label: 'Lead', state: deliveries.length || counters.total ? 'available' : 'unknown', processedCount: undefined, messageCount: undefined },
-    { label: 'PostgreSQL / Outbox', state: error ? 'unknown' : loading ? 'unknown' : 'available', processedCount: undefined, messageCount: undefined },
-    { label: 'Outbox Service', state: processHealth.find((item) => item.id === 'outbox-service')?.state ?? 'unknown', processedCount: undefined, messageCount: undefined },
-    { label: 'RabbitMQ', state: rabbitMqState, processedCount: undefined, messageCount: rabbitMqMessageCount ?? undefined },
-    { label: 'Worker', state: processHealth.find((item) => item.id === 'delivery-worker')?.state ?? 'unknown', processedCount: processHealth.find((item) => item.id === 'delivery-worker')?.processedCount, messageCount: undefined },
-    { label: 'Call center HTTP', state: health.length ? (health.some((item) => item.state === 'available') ? 'available' : 'unavailable') : 'unknown', processedCount: undefined, messageCount: undefined },
-  ], [counters.total, deliveries.length, error, health, loading, processHealth, rabbitMqMessageCount, rabbitMqState])
+    { label: 'Lead', state: deliveries.length || counters.total ? 'available' : 'unknown', processedCount: undefined, publishedCount: undefined, markedPublishedCount: undefined, messageCount: undefined },
+    { label: 'PostgreSQL / Outbox', state: error ? 'unknown' : loading ? 'unknown' : 'available', processedCount: undefined, publishedCount: undefined, markedPublishedCount: undefined, messageCount: undefined },
+    { label: 'Outbox Service', state: processHealth.find((item) => item.id === 'outbox-service')?.state ?? 'unknown', processedCount: undefined, publishedCount: processHealth.find((item) => item.id === 'outbox-service')?.publishedCount, markedPublishedCount: processHealth.find((item) => item.id === 'outbox-service')?.markedPublishedCount, messageCount: undefined },
+    { label: 'RabbitMQ', state: rabbitMqState, processedCount: undefined, publishedCount: undefined, markedPublishedCount: undefined, messageCount: rabbitMqMessageCount ?? undefined },
+    { label: 'Worker', state: processHealth.find((item) => item.id === 'delivery-worker')?.state ?? 'unknown', processedCount: processHealth.find((item) => item.id === 'delivery-worker')?.processedCount, publishedCount: undefined, markedPublishedCount: undefined, messageCount: undefined },
+  ], [counters.total, deliveries.length, error, loading, processHealth, rabbitMqMessageCount, rabbitMqState])
+
+  const callCenters = health.length ? health : [
+    { name: 'Logicall', id: 'call-center-a', state: 'unknown' as const },
+    { name: 'Salesbound', id: 'call-center-b', state: 'unknown' as const },
+    { name: 'AtendeMais', id: 'call-center-c', state: 'unknown' as const },
+  ]
+  const acceptedCounts = callCenters
+    .map((item) => item.acceptedCount)
+    .filter((count): count is number => count !== undefined)
+  const maxAcceptedCount = Math.max(0, ...acceptedCounts)
 
   async function copyIdentifier(value: string) {
     try {
@@ -215,26 +230,68 @@ export function LabDeliveriesPage() {
         </button>
       </header>
 
-      <div className={`${panelClass} mt-6 p-4 sm:p-5`}>
-        <div className="flex flex-col gap-5">
-          {[flow.slice(0, 3), flow.slice(3)].map((row, rowIndex) => (
-            <div key={rowIndex} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
-              {row.map((item, index) => (
-                <div key={item.label} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-1">
+      <div className="mt-6 flex flex-col gap-4">
+        <div className={`${panelClass} p-4 sm:p-5`}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
+            {flow.slice(0, 3).map((item, index) => (
+              <div key={item.label} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-1">
+                <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                  <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
+                    {item.label === 'Outbox Service' && item.publishedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.publishedCount} publicados no Rabbit</span>}
+                    {item.label === 'Outbox Service' && item.markedPublishedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.markedPublishedCount} marcados na Outbox</span>}
+                    {item.label === 'PostgreSQL / Outbox' && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{counters.pending} eventos pendentes na Outbox</span>}
+                  </div>
+                </div>
+                {index < 2 && <span className="hidden shrink-0 px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={`${panelClass} p-4 sm:p-5`}>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_minmax(0,1.2fr)] sm:items-center">
+            {flow.slice(3, 4).map((item) => (
+              <div key={item.label} className="min-w-0 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
+                  {item.messageCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.messageCount} na fila</span>}
+                </div>
+              </div>
+            ))}
+            <span className="hidden self-center px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>
+            {flow.slice(4, 5).map((item) => (
+              <div key={item.label} className="min-w-0 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
+                  {item.processedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.processedCount} processados até agora</span>}
+                </div>
+              </div>
+            ))}
+            <div className="flex flex-col gap-2">
+              {callCenters.map((item) => (
+                <div key={item.id} className="flex min-w-0 items-center gap-1">
+                  <span className="hidden shrink-0 px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>
                   <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
-                    <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
+                    <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">⌁</span><p className="truncate text-[13px] font-medium">{item.name}</p></div>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
-                      {item.label === 'Worker' && item.processedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.processedCount} processados até agora</span>}
-                      {item.label === 'RabbitMQ' && item.messageCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.messageCount} na fila</span>}
-                      {item.label === 'PostgreSQL / Outbox' && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{counters.pending} eventos pendentes na Outbox</span>}
+                      {item.acceptedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.acceptedCount} atendidos</span>}
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-white/[.07]" aria-label={item.acceptedCount !== undefined ? `${item.acceptedCount} atendidos em relação ao maior contador` : 'Contador indisponível'}>
+                      <div
+                        className={`h-full rounded-full transition-[width] duration-500 ${callCenterBarTone[item.id] ?? 'bg-slate-400'}`}
+                        style={{ width: `${maxAcceptedCount > 0 && item.acceptedCount !== undefined ? (item.acceptedCount / maxAcceptedCount) * 100 : 0}%` }}
+                      />
                     </div>
                   </div>
-                  {index < row.length - 1 && <span className="hidden shrink-0 px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>}
                 </div>
               ))}
             </div>
-          ))}
+          </div>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import unittest
 import os
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://elevate:elevate-local-only@localhost:5433/elevate")
 
-from features.outbox.publisher import check_rabbitmq, process_batch, publish_event
+from features.outbox.publisher import OutboxCounters, check_rabbitmq, publish_event, publish_outbox_batch
 
 
 class FakeChannel:
@@ -44,6 +45,26 @@ def event(event_id="event-1"):
 
 
 class OutboxPublisherTests(unittest.TestCase):
+    def test_publication_memory_counts_each_event_once_per_stage(self):
+        memory = OutboxCounters(os.path.join(tempfile.mkdtemp(), "outbox.sqlite3"))
+
+        memory.mark_rabbit_published("event-1")
+        memory.mark_rabbit_published("event-1")
+        memory.mark_sql_published("event-1")
+
+        self.assertEqual(
+            memory.health_status(),
+            {"status": "ok", "publishedCount": 1, "markedPublishedCount": 1},
+        )
+
+    def test_publication_memory_reset_clears_counters(self):
+        memory = OutboxCounters(os.path.join(tempfile.mkdtemp(), "outbox.sqlite3"))
+        memory.mark_rabbit_published("event-1")
+        memory.mark_sql_published("event-1")
+
+        self.assertEqual(memory.reset(), {"status": "ok", "deleted": 1})
+        self.assertEqual(memory.health_status()["publishedCount"], 0)
+
     def test_rabbitmq_health_returns_ready_message_count(self):
         connection = FakeRabbitConnection()
         channel = FakeRabbitChannel()
@@ -71,7 +92,7 @@ class OutboxPublisherTests(unittest.TestCase):
         channel = FakeChannel()
 
         with patch("features.outbox.publisher.mark_published") as mark:
-            self.assertEqual(process_batch(channel, [event()]), 1)
+            self.assertEqual(publish_outbox_batch(channel, [event()]), 1)
 
         mark.assert_called_once_with("event-1")
 
@@ -80,7 +101,7 @@ class OutboxPublisherTests(unittest.TestCase):
 
         with patch("features.outbox.publisher.mark_published") as mark:
             with self.assertRaises(NackError):
-                process_batch(channel, [event()])
+                publish_outbox_batch(channel, [event()])
 
         mark.assert_not_called()
 
@@ -89,7 +110,7 @@ class OutboxPublisherTests(unittest.TestCase):
 
         with patch("features.outbox.publisher.mark_published") as mark:
             with self.assertRaises(UnroutableError):
-                process_batch(channel, [event()])
+                publish_outbox_batch(channel, [event()])
 
         mark.assert_not_called()
 
@@ -98,7 +119,7 @@ class OutboxPublisherTests(unittest.TestCase):
 
         with patch("features.outbox.publisher.mark_published") as mark:
             with self.assertRaises(AMQPConnectionError):
-                process_batch(channel, [event()])
+                publish_outbox_batch(channel, [event()])
 
         mark.assert_not_called()
 
@@ -110,7 +131,7 @@ class OutboxPublisherTests(unittest.TestCase):
             side_effect=SQLAlchemyError("controlled failure"),
         ) as mark:
             with self.assertRaises(SQLAlchemyError):
-                process_batch(channel, [event()])
+                publish_outbox_batch(channel, [event()])
 
         mark.assert_called_once_with("event-1")
         self.assertEqual(channel.calls[0]["properties"].message_id, "event-1")

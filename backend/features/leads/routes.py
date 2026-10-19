@@ -2,6 +2,9 @@ from flask import jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy import delete, or_, select
 from datetime import datetime, timedelta, timezone
+import os
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from features.auth.models import User, UserRole
 from features.auth.permissions import admin_required
@@ -23,6 +26,22 @@ from .schemas import (
     validate_lead_status_update,
     validation_error_message,
 )
+
+
+CALL_CENTER_DELIVERY_RESET = (
+    ("Logicall", os.getenv("LOGICALL_DELIVERIES_URL", "http://logicall:8101/deliveries")),
+    ("Salesbound", os.getenv("SALESBOUND_DELIVERIES_URL", "http://salesbound:8102/deliveries")),
+    ("AtendeMais", os.getenv("ATENDEMAIS_DELIVERIES_URL", "http://atendemais:8103/deliveries")),
+)
+WORKER_DELIVERY_RESET = (
+    "Worker",
+    os.getenv("DELIVERY_WORKER_RESET_URL", "http://delivery-worker:8092/reset"),
+)
+OUTBOX_SERVICE_RESET = (
+    "Outbox Service",
+    os.getenv("OUTBOX_SERVICE_RESET_URL", "http://outbox-service:8091/reset"),
+)
+CALL_CENTER_RESET_TIMEOUT_SECONDS = 0.8
 
 def validate_lead(body):
     try:
@@ -351,5 +370,22 @@ def clear_lab_leads():
         deleted = db.execute(delete(Lead)).rowcount or 0
         db.execute(delete(Contact))
         db.commit()
+
+    reset_failures = []
+    for name, url in (*CALL_CENTER_DELIVERY_RESET, WORKER_DELIVERY_RESET, OUTBOX_SERVICE_RESET):
+        try:
+            request = Request(url, method='DELETE')
+            with urlopen(request, timeout=CALL_CENTER_RESET_TIMEOUT_SECONDS) as response:
+                if not 200 <= response.status < 300:
+                    reset_failures.append(name)
+        except (HTTPError, URLError, TimeoutError, OSError):
+            reset_failures.append(name)
+
+    if reset_failures:
+        return jsonify(
+            deleted=deleted,
+            status='partial',
+            error=f"Não foi possível limpar os atendimentos de: {', '.join(reset_failures)}.",
+        ), 502
 
     return jsonify(deleted=deleted, status='ok')

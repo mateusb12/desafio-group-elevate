@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import signal
+import sqlite3
 import threading
 from datetime import datetime, timezone
 
@@ -21,10 +22,63 @@ from .models import OutboxPendingDelivery
 LOGGER = logging.getLogger("outbox-publisher")
 QUEUE_NAME = "lead.distributed"
 HEALTH_PORT = int(os.getenv("OUTBOX_HEALTH_PORT", "8091"))
+OUTBOX_DB_PATH = os.getenv("OUTBOX_DB_PATH", "/tmp/outbox-service.sqlite3")
 
 
 class PublishError(RuntimeError):
     pass
+
+
+class OutboxMemory:
+    def __init__(self, database_path: str = OUTBOX_DB_PATH) -> None:
+        self.database_path = database_path
+        self._lock = threading.Lock()
+
+    def _open(self) -> sqlite3.Connection:
+        os.makedirs(os.path.dirname(self.database_path) or ".", exist_ok=True)
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS publication_events "
+            "(event_id TEXT PRIMARY KEY, rabbit_published INTEGER NOT NULL DEFAULT 0, "
+            "sql_marked INTEGER NOT NULL DEFAULT 0)"
+        )
+        connection.commit()
+        return connection
+
+    def _mark(self, event_id: str, column: str) -> None:
+        with self._lock, self._open() as connection:
+            connection.execute(
+                "INSERT INTO publication_events(event_id, {column}) VALUES (?, 1) "
+                "ON CONFLICT(event_id) DO UPDATE SET {column}=1".format(column=column),
+                (event_id,),
+            )
+            connection.commit()
+
+    def mark_rabbit_published(self, event_id: str) -> None:
+        self._mark(event_id, "rabbit_published")
+
+    def mark_sql_published(self, event_id: str) -> None:
+        self._mark(event_id, "sql_marked")
+
+    def health_status(self) -> dict:
+        with self._lock, self._open() as connection:
+            published, marked = connection.execute(
+                "SELECT "
+                "COALESCE(SUM(rabbit_published), 0), "
+                "COALESCE(SUM(sql_marked), 0) "
+                "FROM publication_events"
+            ).fetchone()
+        return {
+            "status": "ok",
+            "publishedCount": published,
+            "markedPublishedCount": marked,
+        }
+
+    def reset(self) -> dict:
+        with self._lock, self._open() as connection:
+            deleted = connection.execute("DELETE FROM publication_events").rowcount
+            connection.commit()
+        return {"status": "ok", "deleted": deleted}
 
 
 def rabbitmq_parameters() -> pika.ConnectionParameters:
@@ -101,12 +155,16 @@ def publish_event(channel, event: OutboxPendingDelivery) -> None:
     )
 
 
-def process_batch(channel, events: list[OutboxPendingDelivery]) -> int:
+def publish_outbox_batch(channel, events: list[OutboxPendingDelivery], memory: OutboxMemory | None = None) -> int:
     published = 0
     for event in events:
         try:
             publish_event(channel, event)
+            if memory is not None:
+                memory.mark_rabbit_published(event.id)
             mark_published(event.id)
+            if memory is not None:
+                memory.mark_sql_published(event.id)
             published += 1
             LOGGER.info("event_id=%s result=published_confirmed", event.id)
         except (NackError, UnroutableError, AMQPError, OSError, TimeoutError, PublishError) as error:
@@ -125,6 +183,7 @@ class Publisher:
         self.poll_interval = float(os.getenv("OUTBOX_POLL_INTERVAL_SECONDS", "2"))
         self.retry_initial = float(os.getenv("OUTBOX_RETRY_INITIAL_SECONDS", "1"))
         self.retry_max = float(os.getenv("OUTBOX_RETRY_MAX_SECONDS", "30"))
+        self.memory = OutboxMemory()
 
     def stop(self, _signum=None, _frame=None) -> None:
         LOGGER.info("shutdown_requested")
@@ -151,7 +210,7 @@ class Publisher:
                 if not events:
                     self.stop_event.wait(self.poll_interval)
                     continue
-                process_batch(channel, events)
+                publish_outbox_batch(channel, events, self.memory)
             except (NackError, UnroutableError, PublishError, AMQPError, OSError, TimeoutError):
                 LOGGER.warning("broker_connection_lost")
                 if connection is not None and not connection.is_closed:
@@ -170,7 +229,7 @@ class Publisher:
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     publisher = Publisher()
-    health_server = start_health_server(HEALTH_PORT)
+    health_server = start_health_server(HEALTH_PORT, publisher.memory.health_status, publisher.memory.reset)
     signal.signal(signal.SIGTERM, publisher.stop)
     signal.signal(signal.SIGINT, publisher.stop)
     try:
