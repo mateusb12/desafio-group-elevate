@@ -30,6 +30,7 @@ QUEUE_NAME = "lead.distributed"
 INVALID_QUEUE_NAME = "lead.distributed.invalid"
 HEALTH_PORT = int(os.getenv("DELIVERY_WORKER_HEALTH_PORT", "8092"))
 WORKER_DB_PATH = os.getenv("DELIVERY_WORKER_DB_PATH", "/tmp/delivery-worker.sqlite3")
+SLOW_DELIVERY_INTERVAL_SECONDS = 0.5
 CALL_CENTER_URLS = {
     "call-center-a": os.getenv("LOGICALL_URL", "http://logicall:8101/leads"),
     "call-center-b": os.getenv("SALESBOUND_URL", "http://salesbound:8102/leads"),
@@ -212,7 +213,9 @@ class DeliveryWorker:
         self.max_attempts = int(os.getenv("DELIVERY_MAX_ATTEMPTS", "10"))
         self.retry_initial = float(os.getenv("DELIVERY_RETRY_INITIAL_SECONDS", "1"))
         self.retry_max = float(os.getenv("DELIVERY_RETRY_MAX_SECONDS", "30"))
-        self.workers = int(os.getenv("DELIVERY_WORKERS", "8"))
+        self.slow_delivery = os.getenv("LAB_DELIVERY_SPEED", "normal").lower() == "slow"
+        self.workers = 1 if self.slow_delivery else int(os.getenv("DELIVERY_WORKERS", "8"))
+        self.delivery_interval = SLOW_DELIVERY_INTERVAL_SECONDS if self.slow_delivery else 0
         self.scheduler_interval = float(os.getenv("DELIVERY_SCHEDULER_INTERVAL_SECONDS", "1"))
         self.database_path = os.getenv("DELIVERY_WORKER_DB_PATH", WORKER_DB_PATH)
         self._connection = None
@@ -412,8 +415,13 @@ class DeliveryWorker:
                                 LOGGER.exception("event_id=%s result=unhandled_worker_error", payload["event_id"])
                                 result = DeliveryResult(ack=False, requeue=True)
                             try:
+                                def finish_on_connection() -> None:
+                                    self._finish_ack(ch, method.delivery_tag, result, body)
+                                    if self.delivery_interval:
+                                        self.stop_event.wait(self.delivery_interval)
+
                                 connection.add_callback_threadsafe(
-                                    lambda: self._finish_ack(ch, method.delivery_tag, result, body)
+                                    finish_on_connection
                                 )
                             except (AMQPError, OSError):
                                 LOGGER.info("delivery_tag=%s result=connection_closed", method.delivery_tag)

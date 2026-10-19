@@ -1,3 +1,6 @@
+# Velocidade do LAB: normal ou slow
+x-lab-delivery-speed: &lab-delivery-speed slow
+
 services:
   db:
     image: postgres:17-alpine
@@ -83,6 +86,7 @@ services:
       OUTBOX_RETRY_MAX_SECONDS: "30"
       OUTBOX_HEALTH_PORT: "8091"
       OUTBOX_DB_PATH: "/data/outbox.sqlite3"
+      LAB_DELIVERY_SPEED: *lab-delivery-speed
     depends_on:
       db:
         condition: service_healthy
@@ -109,6 +113,7 @@ services:
       DELIVERY_RETRY_MAX_SECONDS: "30"
       DELIVERY_WORKER_HEALTH_PORT: "8092"
       DELIVERY_WORKER_DB_PATH: "/data/worker.sqlite3"
+      LAB_DELIVERY_SPEED: *lab-delivery-speed
     depends_on:
       db:
         condition: service_healthy

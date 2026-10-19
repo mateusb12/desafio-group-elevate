@@ -23,13 +23,14 @@ LOGGER = logging.getLogger("outbox-publisher")
 QUEUE_NAME = "lead.distributed"
 HEALTH_PORT = int(os.getenv("OUTBOX_HEALTH_PORT", "8091"))
 OUTBOX_DB_PATH = os.getenv("OUTBOX_DB_PATH", "/tmp/outbox-service.sqlite3")
+SLOW_DELIVERY_INTERVAL_SECONDS = 0.25
 
 
 class PublishError(RuntimeError):
     pass
 
 
-class OutboxMemory:
+class OutboxCounters:
     def __init__(self, database_path: str = OUTBOX_DB_PATH) -> None:
         self.database_path = database_path
         self._lock = threading.Lock()
@@ -155,7 +156,7 @@ def publish_event(channel, event: OutboxPendingDelivery) -> None:
     )
 
 
-def publish_outbox_batch(channel, events: list[OutboxPendingDelivery], memory: OutboxMemory | None = None) -> int:
+def publish_outbox_batch(channel, events: list[OutboxPendingDelivery], memory: OutboxCounters | None = None) -> int:
     published = 0
     for event in events:
         try:
@@ -179,11 +180,13 @@ def publish_outbox_batch(channel, events: list[OutboxPendingDelivery], memory: O
 class Publisher:
     def __init__(self) -> None:
         self.stop_event = threading.Event()
-        self.batch_size = int(os.getenv("OUTBOX_BATCH_SIZE", "10"))
+        self.slow_delivery = os.getenv("LAB_DELIVERY_SPEED", "normal").lower() == "slow"
+        self.batch_size = 1 if self.slow_delivery else int(os.getenv("OUTBOX_BATCH_SIZE", "10"))
+        self.delivery_interval = SLOW_DELIVERY_INTERVAL_SECONDS if self.slow_delivery else 0
         self.poll_interval = float(os.getenv("OUTBOX_POLL_INTERVAL_SECONDS", "2"))
         self.retry_initial = float(os.getenv("OUTBOX_RETRY_INITIAL_SECONDS", "1"))
         self.retry_max = float(os.getenv("OUTBOX_RETRY_MAX_SECONDS", "30"))
-        self.memory = OutboxMemory()
+        self.memory = OutboxCounters()
 
     def stop(self, _signum=None, _frame=None) -> None:
         LOGGER.info("shutdown_requested")
@@ -211,6 +214,8 @@ class Publisher:
                     self.stop_event.wait(self.poll_interval)
                     continue
                 publish_outbox_batch(channel, events, self.memory)
+                if self.delivery_interval:
+                    self.stop_event.wait(self.delivery_interval)
             except (NackError, UnroutableError, PublishError, AMQPError, OSError, TimeoutError):
                 LOGGER.warning("broker_connection_lost")
                 if connection is not None and not connection.is_closed:

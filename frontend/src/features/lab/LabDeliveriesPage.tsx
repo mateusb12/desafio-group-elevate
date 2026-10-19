@@ -181,6 +181,11 @@ export function LabDeliveriesPage() {
     .map((item) => item.acceptedCount)
     .filter((count): count is number => count !== undefined)
   const maxAcceptedCount = Math.max(0, ...acceptedCounts)
+  const queueCount = rabbitMqMessageCount ?? 0
+  const processedCount = processHealth.find((item) => item.id === 'delivery-worker')?.processedCount ?? 0
+  const deliveryProgressTotal = Math.max(counters.total, queueCount + processedCount, 1)
+  const processedProgress = Math.min((processedCount / deliveryProgressTotal) * 100, 100)
+  const crystalCount = queueCount
 
   async function copyIdentifier(value: string) {
     try {
@@ -253,21 +258,38 @@ export function LabDeliveriesPage() {
         <div className={`${panelClass} p-4 sm:p-5`}>
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_minmax(0,1.2fr)] sm:items-center">
             {flow.slice(3, 4).map((item) => (
-              <div key={item.label} className="min-w-0 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
-                <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
-                  {item.messageCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.messageCount} na fila</span>}
+              <div key={item.label} className="relative flex min-w-0">
+                <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                  <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
+                    {item.messageCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.messageCount} na fila</span>}
+                  </div>
+                </div>
+                <div className="absolute left-0 top-full mt-2 hidden min-h-8 w-full items-start justify-center sm:flex" aria-label={`Fila com ${queueCount} eventos e ${crystalCount} cristais`}>
+                  <div className="grid w-full grid-cols-10 justify-items-center gap-x-0.5 gap-y-2 overflow-hidden py-1">
+                    {Array.from({ length: crystalCount }, (_, index) => (
+                      <span key={index} className="size-2 rounded-full bg-amber-400 transition-all duration-500" aria-hidden="true" />
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}
-            <span className="hidden self-center px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>
+            <span className="hidden shrink-0 px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>
             {flow.slice(4, 5).map((item) => (
-              <div key={item.label} className="min-w-0 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
-                <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
-                  {item.processedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.processedCount} processados até agora</span>}
+              <div key={item.label} className="flex min-w-0 items-center gap-2">
+                <div className="relative hidden self-stretch w-8 shrink-0 items-center justify-center sm:flex" aria-label={`Worker com ${processedCount} eventos processados`}>
+                  <span className="absolute inset-x-0 -top-4 whitespace-nowrap text-center text-[9px] text-slate-500">worker</span>
+                  <div className="flex h-full w-2.5 items-end overflow-hidden rounded-full bg-slate-200/80 dark:bg-white/[.07]">
+                    <div className="w-full rounded-full bg-emerald-400 transition-[height] duration-500" style={{ height: `${processedProgress}%` }} />
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                  <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
+                    {item.processedCount !== undefined && <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-white/5 dark:text-slate-300">{item.processedCount} processados até agora</span>}
+                  </div>
                 </div>
               </div>
             ))}
