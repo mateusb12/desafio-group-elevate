@@ -455,21 +455,46 @@ Não adicionei serviços extras sem uma necessidade clara.
 
 ## Como usei IA (item 3)
 
-- [x] Documentar decisões, correções, limitações e validações realizadas com IA.
+- [x] Registrar como a IA foi usada no projeto.
 
-Usei ChatGPT para discutir arquitetura e revisar decisões, e Codex como apoio à implementação, refatoração e testes. Meu processo não foi aceitar automaticamente a primeira solução: comparei sugestões com o enunciado, examinei o código e confrontei o resultado com testes e dados persistidos.
+Usei o ChatGPT para discutir a arquitetura e revisar decisões. Usei o Codex
+para ajudar na implementação, nas refatorações e nos testes. Não aceitei as
+sugestões automaticamente: comparei cada uma com o enunciado, o código e os
+resultados dos testes.
 
-**Exemplos concretos de revisão e decisões próprias:**
+Algumas decisões em que fiz essa revisão:
 
-- **Evitei modelagem além do escopo.** Questionei a inclusão generalizada de `is_active` em produtos, funis, afiliados e status porque o enunciado não exigia esse ciclo de vida. Simplifiquei os modelos e regenerei migrations que ainda estavam em elaboração, em vez de acrescentar outra revision só para desfazer complexidade desnecessária.
-- **Questionei o teste de concorrência.** Uma execução com várias threads, por si só, não prova disputa simultânea. Pedi uma barreira de sincronização (`Barrier`) e evidência de transações efetivamente esperando o advisory lock do PostgreSQL; o teste de integração passou a verificar essa contenção.
-- **Confrontei o LAB com o banco.** Ao observar resultados positivos na interface sem os registros esperados no PostgreSQL, sinalizei falsos positivos e exigi checagens do HTTP, da idempotência e dos efeitos reais, em vez de confiar apenas na indicação visual de sucesso.
-- **Refatorei para facilitar a explicação.** Pedi que a lógica do dispatcher deixasse de concentrar lock, contagens e escolha do destino numa função extensa. O código foi separado em funções com nomes descritivos, como `lock_call_center_distribution`, `count_leads_by_call_center` e `select_call_center`.
-- **Controlei a complexidade do frontend.** Questionei soluções e abstrações que não ajudavam o desafio, preferi organização por features e corrigi interpretações literais demais de analogias usadas para descrever interações da interface.
+- **Mantive os modelos dentro do escopo.** Questionei a criação do campo
+  `is_active` em produtos, funis, afiliados e status, porque o desafio não
+  pedia esse tipo de controle. Simplifiquei os modelos e refiz as migrations
+  que ainda estavam em desenvolvimento, em vez de criar outra migration só
+  para desfazer uma complexidade.
+- **Melhorei o teste de concorrência.** Várias threads rodando juntas não
+  provam, sozinhas, que houve disputa real. Por isso, usei uma `Barrier` para
+  sincronizar as requisições e conferi se algumas transações realmente
+  esperaram o lock do PostgreSQL.
+- **Comparei o LAB com o banco.** Quando a tela mostrava sucesso, conferi se o
+  lead realmente tinha sido salvo no PostgreSQL ao invés de confiar na palavra da IA. Também verifiquei as respostas
+  HTTP, a idempotência e os efeitos no banco, em vez de confiar apenas na tela.
+- **Separei melhor o dispatcher.** A lógica de lock, contagem e escolha do
+  call center estava concentrada em uma função grande. Separei essas partes em
+  funções menores, como `lock_call_center_distribution`,
+  `count_leads_by_call_center` e `select_call_center`.
+- **Evitei complicar o frontend.** Questionei abstrações que não ajudavam no
+  desafio, mantive a organização por funcionalidades e corrigi interpretações
+  literais demais de algumas ideias usadas para descrever a interface.
 
-**Como validei:** inspecionei diffs e queries, confrontei o LAB com o PostgreSQL e executei testes automatizados (incluindo concorrência e idempotência), migrations em ambiente isolado e verificações de build. O histórico de commits registra a evolução incremental e as correções. As conversas com o Codex foram usadas como apoio, não como evidência de que algo funcionava.
+Para validar o resultado, revisei diffs e consultas, comparei o LAB com o
+PostgreSQL e rodei os testes automatizados. Também validei concorrência,
+idempotência, migrations e o build do frontend. O histórico de commits mostra
+as mudanças e as correções feitas ao longo do projeto.
 
-Não utilizei arquivos persistentes de instruções como `AGENTS.md` ou `CLAUDE.md`. Por isso não criei esses arquivos retroativamente; registro aqui as decisões relevantes e mantenho no Git os artefatos de desenvolvimento efetivamente utilizados.
+A IA foi usada como apoio, não como prova de que algo funcionava. A prova veio
+do código executado, dos dados salvos e dos testes aprovados.
+
+Não usei arquivos persistentes de instruções como `AGENTS.md` ou `CLAUDE.md`.
+Por isso, não criei esses arquivos depois do projeto pronto. As decisões e os
+artefatos realmente usados ficaram registrados no Git.
 
 ## Visão geral
 
