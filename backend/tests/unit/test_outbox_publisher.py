@@ -63,39 +63,47 @@ class OutboxPublisherTests(unittest.TestCase):
         memory.mark_rabbit_published("event-1")
         memory.mark_sql_published("event-1")
 
-        self.assertEqual(
-            memory.health_status(),
-            {"status": "ok", "publishedCount": 1, "markedPublishedCount": 1},
-        )
+        with self.subTest("1.1 - contar publicação RabbitMQ uma única vez"):
+            self.assertEqual(
+                memory.health_status(),
+                {"status": "ok", "publishedCount": 1, "markedPublishedCount": 1},
+            )
 
     def test_publication_memory_reset_clears_counters(self):
         memory = OutboxCounters(os.path.join(tempfile.mkdtemp(), "outbox.sqlite3"))
         memory.mark_rabbit_published("event-1")
         memory.mark_sql_published("event-1")
 
-        self.assertEqual(memory.reset(), {"status": "ok", "deleted": 1})
-        self.assertEqual(memory.health_status()["publishedCount"], 0)
+        with self.subTest("2.1 - apagar contadores persistidos"):
+            self.assertEqual(memory.reset(), {"status": "ok", "deleted": 1})
+
+        with self.subTest("2.2 - zerar contadores após reset"):
+            self.assertEqual(memory.health_status()["publishedCount"], 0)
 
     def test_rabbitmq_health_returns_ready_message_count(self):
         connection = FakeRabbitConnection()
         channel = FakeRabbitChannel()
 
-        with patch("features.outbox.publisher.open_confirmed_channel", return_value=(connection, channel)):
-            self.assertEqual(
-                check_rabbitmq(),
-                {"state": "available", "messageCount": 7, "deadLetterCount": 3},
-            )
+        with self.subTest("3.1 - retornar saúde disponível e contadores"):
+            with patch("features.outbox.publisher.open_confirmed_channel", return_value=(connection, channel)):
+                self.assertEqual(
+                    check_rabbitmq(),
+                    {"state": "available", "messageCount": 7, "deadLetterCount": 3},
+                )
 
-        self.assertEqual(channel.queue_declare_kwargs, {"queue": "lead.distributed.invalid", "passive": True})
+        with self.subTest("3.2 - consultar fila de dead letters sem consumir mensagens"):
+            self.assertEqual(channel.queue_declare_kwargs, {"queue": "lead.distributed.invalid", "passive": True})
 
     def test_clear_delivery_dead_letter_queue_purges_invalid_queue(self):
         connection = FakeRabbitConnection()
         channel = FakeRabbitChannel()
 
-        with patch("features.outbox.publisher.open_confirmed_channel", return_value=(connection, channel)):
-            self.assertEqual(clear_delivery_dead_letter_queue(), 3)
+        with self.subTest("4.1 - retornar quantidade de mensagens removidas"):
+            with patch("features.outbox.publisher.open_confirmed_channel", return_value=(connection, channel)):
+                self.assertEqual(clear_delivery_dead_letter_queue(), 3)
 
-        self.assertEqual(channel.queue_purge_kwargs, {"queue": "lead.distributed.invalid"})
+        with self.subTest("4.2 - purgar fila de dead letters"):
+            self.assertEqual(channel.queue_purge_kwargs, {"queue": "lead.distributed.invalid"})
 
     def test_publish_uses_confirmed_persistent_mandatory_json_message(self):
         channel = FakeChannel()
@@ -103,13 +111,16 @@ class OutboxPublisherTests(unittest.TestCase):
         publish_event(channel, event())
 
         call = channel.calls[0]
-        self.assertEqual(call["exchange"], "")
-        self.assertEqual(call["routing_key"], "lead.distributed")
-        self.assertTrue(call["mandatory"])
-        self.assertEqual(call["properties"].message_id, "event-1")
-        self.assertEqual(call["properties"].content_type, "application/json")
-        self.assertEqual(call["properties"].delivery_mode, 2)
-        self.assertIn(b'"event_id":"event-1"', call["body"])
+        with self.subTest("5.1 - publicar na rota correta com entrega obrigatória"):
+            self.assertEqual(call["exchange"], "")
+            self.assertEqual(call["routing_key"], "lead.distributed")
+            self.assertTrue(call["mandatory"])
+
+        with self.subTest("5.2 - enviar mensagem JSON persistente identificada"):
+            self.assertEqual(call["properties"].message_id, "event-1")
+            self.assertEqual(call["properties"].content_type, "application/json")
+            self.assertEqual(call["properties"].delivery_mode, 2)
+            self.assertIn(b'"event_id":"event-1"', call["body"])
 
     def test_confirmed_publication_marks_event(self):
         channel = FakeChannel()
