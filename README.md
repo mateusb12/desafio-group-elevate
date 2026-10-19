@@ -428,13 +428,13 @@ Validação final executada em 18/10/2026:
 - `docker compose up --build -d`: build e inicialização do Compose concluídos;
 - `docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v`: **56 testes aprovados**;
 - migrations aplicadas e `alembic current`: `c5d7e9f1a2b3 (head)`;
+- instalação limpa validada com PostgreSQL vazio, sem intervenção manual;
 - concorrência real: 100 leads com distribuição 50/30/20, 50 reenvios idempotentes e contenção observada no advisory lock;
 - frontend: TypeScript e build Vite aprovados;
 - smoke tests: `/ping` da API e health checks dos três simuladores aprovados.
 
-A execução acima validou a atualização do schema no banco local do Compose; uma
-execução adicional partindo de um volume PostgreSQL vazio continua sendo uma
-checagem operacional recomendada antes de um deploy novo.
+A instalação limpa confirmou que o projeto sobe com um PostgreSQL vazio e aplica
+as migrations sem intervenção manual.
 
 ## 27–28. Priorização, limitações e stack
 
