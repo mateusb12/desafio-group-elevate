@@ -115,6 +115,7 @@ export function LabDeliveriesPage() {
   const [processHealth, setProcessHealth] = useState<ServiceHealth[]>([])
   const [rabbitMqState, setRabbitMqState] = useState<'available' | 'unavailable' | 'unknown'>('unknown')
   const [rabbitMqMessageCount, setRabbitMqMessageCount] = useState<number | null>(null)
+  const [rabbitMqDeadLetterCount, setRabbitMqDeadLetterCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -140,8 +141,10 @@ export function LabDeliveriesPage() {
     if (rabbitMqResult.status === 'fulfilled') {
       setRabbitMqState(rabbitMqResult.value.state)
       setRabbitMqMessageCount(rabbitMqResult.value.messageCount ?? null)
+      setRabbitMqDeadLetterCount(rabbitMqResult.value.deadLetterCount ?? null)
     } else {
       setRabbitMqMessageCount(null)
+      setRabbitMqDeadLetterCount(null)
     }
     if (outboxResult.status === 'fulfilled') {
       setProcessHealth((current) => [...current.filter((item) => item.id !== 'outbox-service'), outboxResult.value])
@@ -186,6 +189,7 @@ export function LabDeliveriesPage() {
   const deliveryProgressTotal = Math.max(counters.total, queueCount + processedCount, 1)
   const processedProgress = Math.min((processedCount / deliveryProgressTotal) * 100, 100)
   const crystalCount = queueCount
+  const deadLetterCount = rabbitMqDeadLetterCount ?? 0
 
   async function copyIdentifier(value: string) {
     try {
@@ -259,6 +263,13 @@ export function LabDeliveriesPage() {
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_minmax(0,1.2fr)] sm:items-center">
             {flow.slice(3, 4).map((item) => (
               <div key={item.label} className="relative flex min-w-0">
+                <div className="absolute bottom-full left-0 mb-2 hidden min-h-8 w-full items-end justify-center sm:flex" aria-label={`DLQ com ${deadLetterCount} eventos`}>
+                  <div className="grid w-full grid-cols-10 justify-items-center gap-x-0.5 gap-y-2 overflow-hidden py-1">
+                    {Array.from({ length: deadLetterCount }, (_, index) => (
+                      <span key={index} className="size-2 rounded-full bg-rose-500 transition-all duration-500" aria-hidden="true" />
+                    ))}
+                  </div>
+                </div>
                 <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
                   <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">

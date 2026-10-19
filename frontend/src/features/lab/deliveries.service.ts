@@ -33,6 +33,19 @@ export type RabbitMqHealth = {
   state: 'available' | 'unavailable'
   error?: string
   messageCount?: number
+  deadLetterCount?: number
+}
+
+const LAB_REQUEST_TIMEOUT_MS = 1200
+
+async function fetchLab(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), LAB_REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 async function readJson<T extends object>(response: Response): Promise<T> {
@@ -44,24 +57,24 @@ async function readJson<T extends object>(response: Response): Promise<T> {
 }
 
 export async function listDeliveries(page = 1, pageSize = 8): Promise<DeliveryResponse> {
-  const response = await fetch(`/api/api/lab/deliveries?page=${page}&pageSize=${pageSize}`, { credentials: 'same-origin' })
+  const response = await fetchLab(`/api/api/lab/deliveries?page=${page}&pageSize=${pageSize}`, { credentials: 'same-origin' })
   return readJson<DeliveryResponse>(response)
 }
 
 export async function checkCallCenterHealth(): Promise<ServiceHealth[]> {
-  const response = await fetch('/api/api/lab/health', { credentials: 'same-origin' })
+  const response = await fetchLab('/api/api/lab/health', { credentials: 'same-origin' })
   const body = await readJson<{ services?: ServiceHealth[] }>(response)
   if (!Array.isArray(body.services)) throw new Error('Resposta inválida da saúde dos simuladores.')
   return body.services
 }
 
 export async function checkRabbitMqHealth(): Promise<RabbitMqHealth> {
-  const response = await fetch('/api/api/lab/rabbitmq', { credentials: 'same-origin' })
+  const response = await fetchLab('/api/api/lab/rabbitmq', { credentials: 'same-origin' })
   return readJson<RabbitMqHealth>(response)
 }
 
 async function checkProcessHealth(path: string, expectedId: string, expectedName: string): Promise<ServiceHealth> {
-  const response = await fetch(path, { credentials: 'same-origin' })
+  const response = await fetchLab(path, { credentials: 'same-origin' })
   const body = await readJson<ServiceHealth>(response)
   if (body.id !== expectedId || body.name !== expectedName || !['available', 'unavailable'].includes(body.state)) {
     throw new Error('Resposta inválida da saúde do processo.')

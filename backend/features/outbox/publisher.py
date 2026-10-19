@@ -21,6 +21,7 @@ from .models import OutboxPendingDelivery
 
 LOGGER = logging.getLogger("outbox-publisher")
 QUEUE_NAME = "lead.distributed"
+INVALID_QUEUE_NAME = "lead.distributed.invalid"
 HEALTH_PORT = int(os.getenv("OUTBOX_HEALTH_PORT", "8091"))
 OUTBOX_DB_PATH = os.getenv("OUTBOX_DB_PATH", "/tmp/outbox-service.sqlite3")
 SLOW_DELIVERY_INTERVAL_SECONDS = 0.25
@@ -112,11 +113,13 @@ def check_rabbitmq() -> dict:
     try:
         connection, channel = open_confirmed_channel()
         queue_state = channel.queue_declare(queue=QUEUE_NAME, passive=True)
+        invalid_queue_state = channel.queue_declare(queue=INVALID_QUEUE_NAME, passive=True)
         channel.close()
         connection.close()
         return {
             "state": "available",
             "messageCount": queue_state.method.message_count,
+            "deadLetterCount": invalid_queue_state.method.message_count,
         }
     except (AMQPError, OSError, TimeoutError) as error:
         if connection is not None and not connection.is_closed:

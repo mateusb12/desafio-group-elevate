@@ -27,7 +27,8 @@ class FakeChannel:
 class FakeRabbitChannel:
     def queue_declare(self, **kwargs):
         self.queue_declare_kwargs = kwargs
-        return SimpleNamespace(method=SimpleNamespace(message_count=7))
+        message_count = 7 if kwargs["queue"] == "lead.distributed" else 3
+        return SimpleNamespace(method=SimpleNamespace(message_count=message_count))
 
     def close(self):
         return None
@@ -70,9 +71,12 @@ class OutboxPublisherTests(unittest.TestCase):
         channel = FakeRabbitChannel()
 
         with patch("features.outbox.publisher.open_confirmed_channel", return_value=(connection, channel)):
-            self.assertEqual(check_rabbitmq(), {"state": "available", "messageCount": 7})
+            self.assertEqual(
+                check_rabbitmq(),
+                {"state": "available", "messageCount": 7, "deadLetterCount": 3},
+            )
 
-        self.assertEqual(channel.queue_declare_kwargs, {"queue": "lead.distributed", "passive": True})
+        self.assertEqual(channel.queue_declare_kwargs, {"queue": "lead.distributed.invalid", "passive": True})
 
     def test_publish_uses_confirmed_persistent_mandatory_json_message(self):
         channel = FakeChannel()
