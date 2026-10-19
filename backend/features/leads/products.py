@@ -24,7 +24,7 @@ def seed_demo_catalog(db):
         'new': 'Novo',
         'contacted': 'Contatado',
         'no_answer': 'Sem resposta',
-        'callback': 'Retorno',
+        'callback': 'Aguardando resposta',
         'qualified': 'Qualificado',
         'sale': 'Venda',
         'refund': 'Reembolso',
