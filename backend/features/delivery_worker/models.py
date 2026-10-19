@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from shared.database import Base
@@ -10,6 +10,20 @@ class DeliveryLeadToCallCenter(Base):
     """Estado persistente da entrega de um lead ao call center selecionado."""
 
     __tablename__ = "delivery_leads_to_call_centers"
+    __table_args__ = (
+        Index(
+            "ix_delivery_retry_due_at_event_id",
+            "next_retry_at", "event_id",
+            postgresql_where=text("status = 'retry_scheduled'"),
+        ),
+        Index(
+            "ix_delivery_failed_pending_dlq_at_event_id",
+            "failed_at", "event_id",
+            postgresql_where=text(
+                "status = 'failed' AND dead_letter_published_at IS NULL"
+            ),
+        ),
+    )
 
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     lead_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)

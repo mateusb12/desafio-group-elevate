@@ -8,6 +8,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -70,6 +71,10 @@ class Lead(Base):
             ['product', 'funnel'],
             ['product_funnels.product_code', 'product_funnels.funnel_code'],
             name='fk_leads_product_funnel',
+        ),
+        Index(
+            'ix_leads_received_at_id',
+            text('received_at DESC'), text('id DESC'),
         ),
     )
 

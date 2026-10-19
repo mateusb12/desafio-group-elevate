@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,6 +10,13 @@ from shared.database import Base
 
 class OutboxPendingDelivery(Base):
     __tablename__ = 'outbox_pending_deliveries'
+    __table_args__ = (
+        Index(
+            'ix_outbox_pending_created_at_id',
+            'created_at', 'id',
+            postgresql_where=text('published_at IS NULL'),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid4())

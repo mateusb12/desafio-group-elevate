@@ -198,13 +198,13 @@ Principais tabelas:
 - `outbox_pending_deliveries`: envios que ainda precisam ser processados.
 - `delivery_leads_to_call_centers`: situação de cada entrega.
 
-O banco usa dez migrations Alembic, da `d86498fb27a3` até a atual
-`c5d7e9f1a2b3`. Elas criam o schema, os catálogos, o histórico de distribuição
-e as tabelas usadas no envio dos leads.
+O banco usa 11 migrations Alembic, da `d86498fb27a3` até a revisão atual
+`f1a2b3c4d5e6`. A última migration adiciona quatro índices de performance,
+definidos após análise das consultas reais com `EXPLAIN (ANALYZE, BUFFERS)`.
 
-Hoje existem **14 tabelas principais** no PostgreSQL, além da tabela usada pelo
-Alembic. Os três simuladores usam SQLite para guardar os `event_id` que já
-receberam e evitar entregas repetidas.
+O PostgreSQL possui 14 tabelas de aplicação, além de `alembic_version`. Os três
+simuladores usam SQLite para guardar os `event_id` que já receberam e evitar
+entregas repetidas.
 
 No ambiente local, o seed cria os dados de demonstração depois que as migrations
 terminam. A atualização de um banco antigo ainda precisa de um plano próprio
@@ -214,45 +214,76 @@ para migrar os dados existentes.
 
 - [x] Manter índices básicos e constraints de integridade declarados no ORM.
 - [x] Mapear as consultas reais e seus filtros/ordenação.
-- [ ] Medir planos de consulta com EXPLAIN ANALYZE.
-- [ ] Avaliar índices compostos com base nas medições.
+- [x] Medir planos com `EXPLAIN (ANALYZE, BUFFERS)` em banco de teste.
+- [x] Criar índices adicionais somente quando houve ganho mensurável.
 - [x] Documentar a justificativa dos índices escolhidos.
 
-O banco tem índices nos campos mais usados nas consultas:
+Foram analisadas as consultas do dispatcher, da lista de leads, do dashboard,
+dos webhooks, da Outbox, dos retries e do histórico de distribuições.
 
-- e-mail do contato;
-- contato e call center do lead;
-- lead dos eventos;
-- chave de idempotência;
-- identificação externa dos eventos;
-- histórico de distribuição por lead e data.
+Os índices atuais já atendem às buscas por chave primária, e-mail, idempotência,
+call center, contato, evento e distribuição. A migration `f1a2b3c4d5e6` adiciona:
 
-Esses índices ajudam nas buscas, nos filtros e na consulta do histórico. As
-regras de campo único também evitam cadastros e eventos repetidos.
+- `(leads.received_at DESC, leads.id DESC)` para a ordenação da listagem;
+- índice parcial `(created_at, id)` da Outbox somente para `published_at IS NULL`;
+- índice parcial `(next_retry_at, event_id)` para retries vencidos;
+- índice parcial `(failed_at, event_id)` para falhas sem confirmação de DLQ.
 
-Ainda não foram criados índices extras. Isso será avaliado depois de medir o
-desempenho das consultas reais com `EXPLAIN ANALYZE`.
+Resultado do benchmark com 50 mil leads, 100 mil eventos e 50 mil registros de
+Outbox/entrega:
+
+| Consulta | Tempo antes | Tempo depois | Plano utilizado | Decisão |
+| --- | ---: | ---: | --- | --- |
+| Dispatcher: contagem por call center | 16,35 ms | 19,18 ms | `Seq Scan` + `HashAggregate` | Manter; três grupos justificam a leitura |
+| Lista de leads, página 51 | 26,26 ms | 5,04 ms | `Index Scan` + joins por índice | Criar índice de ordenação |
+| Dashboard: contagem total | 5,43 ms | 5,81 ms | `Seq Scan` + `Aggregate` | Manter |
+| Dashboard: agrupamento por status | 24,12 ms | 24,37 ms | `Seq Scan` + `HashAggregate` | Manter |
+| Webhook: `(lead_id, external_id)` | 0,12 ms | 0,06 ms | `Index Scan` na constraint única | Índice existente suficiente |
+| Histórico de eventos do lead | 0,08 ms | 0,08 ms | `Bitmap Scan` + sort pequeno | Não criar índice composto |
+| Outbox: 10 pendentes mais antigos | 6,96 ms | 0,08 ms | `Index Only Scan` parcial | Criar índice parcial |
+| Worker: 8 retries vencidos | 18,83 ms | 0,19 ms | índice parcial + `Nested Loop` | Criar índice parcial |
+| Worker: 8 falhas sem DLQ | 17,84 ms | 0,15 ms | índice parcial + `Nested Loop` | Criar índice parcial |
+| Histórico de distribuição do lead | 0,06 ms | 0,06 ms | `Index Scan Backward` existente | Índice existente suficiente |
+
+Os tempos são de uma execução no banco temporário e podem variar um pouco. O
+`Seq Scan` do dispatcher e do dashboard foi mantido porque, nesse volume, ler
+as linhas diretamente foi uma boa escolha do PostgreSQL.
+
+Também foi testado um índice composto para `call_center_id`, `status` e a
+ordenação da listagem. Ele reduziu a página filtrada de 16,20 ms para 0,17 ms,
+mas piorou a contagem exata da mesma requisição de 30,68 ms para 59,94 ms.
+Como o endpoint executa as duas operações, o índice não foi mantido. Nesse caso,
+o problema pode estar na forma de fazer a paginação e a contagem, não na falta
+de outro índice.
 
 ## 11. Escalabilidade do banco
 
 - [x] Documentar a evolução prevista para 100 mil, 1 milhão e mais de 10 milhões de leads.
 
-Estratégia por volume:
+O benchmark mostrou que a lista ordenada, a Outbox e as filas de retry precisavam
+de índices próprios. Ele não mede o comportamento com concorrência e tráfego de
+produção.
 
-- Até 100 mil leads: PostgreSQL e índices direcionados.
-- A partir de 1 milhão: filtros e paginação no backend, além de análise dos planos de consulta.
-- Acima de 10 milhões: monitoramento do histórico e reavaliação dos gargalos.
+Até 100 mil leads, PostgreSQL com esses índices deve atender bem. Perto de 1
+milhão, é importante acompanhar o tempo da listagem, da contagem, dos lotes da
+Outbox, dos retries e o tempo de espera do dispatcher. A paginação atual usa
+`OFFSET/LIMIT`, que fica mais lenta em páginas muito profundas. Se isso virar um
+problema, a primeira alternativa a testar é paginação por cursor usando
+`(received_at, id)`.
 
-Se o volume crescer, podemos guardar a quantidade de leads de cada call center
-de forma separada, evitando novas contagens no banco a cada distribuição. Também
-podemos estudar o uso de filas e o particionamento das tabelas, mas só depois
-de medir o desempenho do sistema.
+Em 10 milhões de leads, também devem ser acompanhados o tamanho de `events` e
+`distributions`, o uso de disco, o crescimento dos índices e o tempo de
+`COUNT(*)`. Particionamento por data ou limpeza do histórico só deve ser avaliado
+se esses números mostrarem um problema real.
 
-Para volumes acima de 10 milhões, a próxima etapa seria medir as consultas com
-`EXPLAIN ANALYZE`, testar uma forma mais rápida de carregar listas grandes,
-acompanhar o crescimento de `events` e `distributions` e verificar a % de requisições que ficam aguardando sua vez para distribuir leads. 
+O dispatcher pode virar um gargalo porque cada distribuição espera sua vez no
+advisory lock e faz uma nova contagem. Isso ainda não foi um problema comprovado
+no benchmark. Se a espera crescer, a primeira alternativa a medir é guardar
+contadores por call center junto com a distribuição.
 
-O particionamento por data só seria considerado se essas medições mostrassem que ele é realmente necessário.
+Na Outbox e no scheduler, os índices parciais evitam procurar no histórico já
+processado. Ainda assim, é importante acompanhar a quantidade de pendências, a
+idade do item mais antigo e a quantidade de retries.
 
 
 
@@ -423,18 +454,28 @@ As suítes de integração também verificam concorrência real no PostgreSQL, i
 docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Validação final executada em 18/10/2026:
+Validações finais:
 
-- `docker compose up --build -d`: build e inicialização do Compose concluídos;
-- `docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v`: **56 testes aprovados**;
-- migrations aplicadas e `alembic current`: `c5d7e9f1a2b3 (head)`;
-- instalação limpa validada com PostgreSQL vazio, sem intervenção manual;
-- concorrência real: 100 leads com distribuição 50/30/20, 50 reenvios idempotentes e contenção observada no advisory lock;
-- frontend: TypeScript e build Vite aprovados;
-- smoke tests: `/ping` da API e health checks dos três simuladores aprovados.
+**Instalação limpa**
 
-A instalação limpa confirmou que o projeto sobe com um PostgreSQL vazio e aplica
-as migrations sem intervenção manual.
+- Ambiente Docker Compose inicializado com volumes novos e PostgreSQL vazio.
+- Migrations aplicadas até a revisão vigente naquele teste.
+- API e serviços inicializados corretamente.
+- Suíte completa: **56 testes aprovados**.
+- Ambiente temporário removido, preservando os dados de desenvolvimento.
+
+**Otimização de índices**
+
+- Benchmark isolado com 50 mil leads, 100 mil eventos e dados relacionados.
+- Consultas avaliadas com `EXPLAIN (ANALYZE, BUFFERS)`.
+- Quatro índices adicionados após comparação de desempenho.
+- Migration `f1a2b3c4d5e6` validada com upgrade, downgrade e novo upgrade.
+- Suíte completa executada novamente após as alterações: **56 testes aprovados em 9,092 segundos**.
+- `git diff --check` sem erros.
+
+A instalação limpa foi validada antes da última migration de índices. A migration
+adicional foi testada separadamente, mas ainda não foi repetido o teste completo
+de inicialização do Docker Compose com PostgreSQL vazio após essa alteração.
 
 ## 27–28. Priorização, limitações e stack
 
@@ -523,10 +564,10 @@ artefatos realmente usados ficaram registrados no Git.
 | Área (itens do PDF) | Situação |
 | --- | --- |
 | Arquitetura, recebimento e idempotência (5–8) | Concluído |
-| Banco e migrations (9) | Concluído; 14 tabelas e 10 revisions Alembic validadas |
-| Índices e escala (10–11) | Parcial; planejamento de escala documentado |
+| Banco e migrations (9) | Concluído; 14 tabelas e 11 migrations Alembic |
+| Índices e escala (10–11) | Concluído; 4 índices adicionados após benchmark |
 | Dispatcher e webhooks (12–17) | Concluído |
-| Interface, segurança e testes (18–23) | Parcial |
+| Interface, segurança e testes (18–23) | Parcial; testes aprovados, proteções adicionais documentadas |
 | Priorização e evolução (27–28) | Planejado e documentado |
 
 As **checklists de cada seção numerada** são a referência para acompanhar as pendências, sem duplicá-las aqui.
