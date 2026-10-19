@@ -236,26 +236,24 @@ class TestWebhookConcurrency(unittest.TestCase):
         response_statuses = Counter(code for code, _ in responses)
         print(f"   HTTP: {dict(response_statuses)}", flush=True)
 
-        self.assertEqual(response_statuses[201], 1)
-        self.assertEqual(response_statuses[200], 1)
+        with self.subTest("1.1 - aceitar uma requisição e reconhecer a duplicata"):
+            self.assertEqual(response_statuses[201], 1)
+            self.assertEqual(response_statuses[200], 1)
+            self.assertEqual(len({body["id"] for _, body in responses}), 1)
+            self.assertEqual(
+                sum(bool(body.get("duplicate")) for _, body in responses),
+                1,
+            )
 
-        self.assertEqual(
-            len({body["id"] for _, body in responses}),
-            1,
-        )
+        with self.subTest("1.2 - persistir apenas um evento"):
+            matching_events = [
+                event for event in self.get_lead_events()
+                if event.external_id == event_payload["external_id"]
+            ]
+            self.assertEqual(len(matching_events), 1)
 
-        self.assertEqual(
-            sum(bool(body.get("duplicate")) for _, body in responses),
-            1,
-        )
-
-        matching_events = [
-            event for event in self.get_lead_events()
-            if event.external_id == event_payload["external_id"]
-        ]
-
-        self.assertEqual(len(matching_events), 1)
-        self.assertEqual(self.get_current_lead_status(), "sale")
+        with self.subTest("1.3 - manter o status final do evento"):
+            self.assertEqual(self.get_current_lead_status(), "sale")
 
         print("✅ Apenas um evento persistido.")
         print("✅ Duplicata reconhecida corretamente.")
@@ -282,22 +280,23 @@ class TestWebhookConcurrency(unittest.TestCase):
         response_statuses = Counter(code for code, _ in responses)
         print(f"   HTTP: {dict(response_statuses)}", flush=True)
 
-        self.assertEqual(response_statuses[201], 2)
+        with self.subTest("2.1 - aceitar os dois eventos fora de ordem"):
+            self.assertEqual(response_statuses[201], 2)
+            received = [
+                event for event in self.get_lead_events()
+                if event.external_id in {
+                    older["external_id"],
+                    newer["external_id"],
+                }
+            ]
+            self.assertEqual(len(received), 2)
+            self.assertEqual(
+                {event.status for event in received},
+                {"contacted", "sale"},
+            )
 
-        received = [
-            event for event in self.get_lead_events()
-            if event.external_id in {
-                older["external_id"],
-                newer["external_id"],
-            }
-        ]
-
-        self.assertEqual(len(received), 2)
-        self.assertEqual(
-            {event.status for event in received},
-            {"contacted", "sale"},
-        )
-        self.assertEqual(self.get_current_lead_status(), "sale")
+        with self.subTest("2.2 - usar o status do evento mais recente"):
+            self.assertEqual(self.get_current_lead_status(), "sale")
 
         print("✅ Os dois eventos foram persistidos.")
         print("✅ Status final corresponde ao evento mais recente.")
@@ -326,30 +325,25 @@ class TestWebhookConcurrency(unittest.TestCase):
         response_statuses = Counter(code for code, _ in responses)
         print(f"   HTTP: {dict(response_statuses)}", flush=True)
 
-        self.assertEqual(response_statuses[201], 1)
-        self.assertEqual(response_statuses[409], 1)
+        with self.subTest("3.1 - aceitar somente um evento conflitante"):
+            self.assertEqual(response_statuses[201], 1)
+            self.assertEqual(response_statuses[409], 1)
 
-        matching_events = [
-            event for event in self.get_lead_events()
-            if event.external_id == external_id
-        ]
-
-        self.assertEqual(len(matching_events), 1)
+        with self.subTest("3.2 - impedir duplicidade do external_id"):
+            matching_events = [
+                event for event in self.get_lead_events()
+                if event.external_id == external_id
+            ]
+            self.assertEqual(len(matching_events), 1)
 
         winning_status = next(
             body["status"]
             for code, body in responses
             if code == 201
         )
-
-        self.assertEqual(
-            matching_events[0].status,
-            winning_status,
-        )
-        self.assertEqual(
-            self.get_current_lead_status(),
-            winning_status,
-        )
+        with self.subTest("3.3 - refletir no lead o status aceito"):
+            self.assertEqual(matching_events[0].status, winning_status)
+            self.assertEqual(self.get_current_lead_status(), winning_status)
 
         print("✅ Um evento aceito e outro rejeitado.")
         print("✅ Nenhum external_id conflitante foi duplicado.")

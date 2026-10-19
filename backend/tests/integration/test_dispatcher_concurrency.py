@@ -191,10 +191,11 @@ class TestDispatcherConcurrency(unittest.TestCase):
                 )
             ).all()
 
-        self.assertTrue(
-            available_call_centers,
-            "Nenhum call center ativo",
-        )
+        with self.subTest("1.1 - garantir centros ativos para distribuição"):
+            self.assertTrue(
+                available_call_centers,
+                "Nenhum call center ativo",
+            )
 
         replies = []
 
@@ -226,12 +227,13 @@ class TestDispatcherConcurrency(unittest.TestCase):
             if status != 201
         ]
 
-        self.assertFalse(errors, f"Falhas: {errors[:5]}")
-        self.assertEqual(
-            len({body["id"] for _, body in replies}),
-            100,
-            "IDs duplicados",
-        )
+        with self.subTest("1.2 - criar 100 leads distintos sob concorrência"):
+            self.assertFalse(errors, f"Falhas: {errors[:5]}")
+            self.assertEqual(
+                len({body["id"] for _, body in replies}),
+                100,
+                "IDs duplicados",
+            )
 
         with db_session() as db:
             created = db.scalars(
@@ -248,8 +250,9 @@ class TestDispatcherConcurrency(unittest.TestCase):
                 ).all()
             )
 
-        self.assertEqual(len(created), 100)
-        self.assertTrue(all(lead.call_center_id for lead in created))
+        with self.subTest("1.3 - persistir e atribuir todos os leads"):
+            self.assertEqual(len(created), 100)
+            self.assertTrue(all(lead.call_center_id for lead in created))
 
         distribution = Counter(
             lead.call_center_id for lead in created
@@ -272,20 +275,21 @@ class TestDispatcherConcurrency(unittest.TestCase):
         )
         total_assigned = sum(lead_counts_by_center.values())
 
-        for center in available_call_centers:
-            expected_lead_count = (
-                total_assigned
-                * center.distribution_weight
-                / total_weight
-            )
-            self.assertLessEqual(
-                abs(
-                    lead_counts_by_center.get(center.id, 0)
-                    - expected_lead_count
-                ),
-                1.01,
-                f"Distribuição desequilibrada: {center.name}",
-            )
+        with self.subTest("1.4 - respeitar pesos de distribuição"):
+            for center in available_call_centers:
+                expected_lead_count = (
+                    total_assigned
+                    * center.distribution_weight
+                    / total_weight
+                )
+                self.assertLessEqual(
+                    abs(
+                        lead_counts_by_center.get(center.id, 0)
+                        - expected_lead_count
+                    ),
+                    1.01,
+                    f"Distribuição desequilibrada: {center.name}",
+                )
 
         print("✅ 100 leads criados e distribuição validada.")
 
@@ -312,12 +316,13 @@ class TestDispatcherConcurrency(unittest.TestCase):
 
         print(f"   HTTP: {dict(duplicate_response_statuses)}")
 
-        self.assertEqual(duplicate_response_statuses[201], 1)
-        self.assertEqual(duplicate_response_statuses[200], 49)
-        self.assertEqual(
-            len({body["id"] for _, body in duplicate_replies}),
-            1,
-        )
+        with self.subTest("2.1 - aceitar uma requisição idempotente"):
+            self.assertEqual(duplicate_response_statuses[201], 1)
+            self.assertEqual(duplicate_response_statuses[200], 49)
+            self.assertEqual(
+                len({body["id"] for _, body in duplicate_replies}),
+                1,
+            )
 
         with db_session() as db:
             duplicates = db.scalars(
@@ -353,11 +358,12 @@ class TestDispatcherConcurrency(unittest.TestCase):
                 lead.contact_id for lead in all_test_leads
             }
 
-        self.assertEqual(len(duplicates), 1)
-        self.assertEqual(len(all_test_leads), 101)
-        self.assertEqual(len(contact_ids), 101)
-        self.assertEqual(event_count, 101)
-        self.assertEqual(pending_delivery_count, 101)
+        with self.subTest("2.2 - impedir duplicação de lead, contato e evento"):
+            self.assertEqual(len(duplicates), 1)
+            self.assertEqual(len(all_test_leads), 101)
+            self.assertEqual(len(contact_ids), 101)
+            self.assertEqual(event_count, 101)
+            self.assertEqual(pending_delivery_count, 101)
 
         print("✅ 50 envios produziram somente 1 lead.")
         print("✅ 101 leads, 101 contatos e 101 eventos iniciais.")

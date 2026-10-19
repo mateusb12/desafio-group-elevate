@@ -64,115 +64,78 @@ class AuthIntegrationTests(unittest.TestCase):
         )
 
     def test_login_me_logout_and_revocation(self):
-        # Sem autenticação.
-        self.assertEqual(
-            self.client.get("/auth/me").status_code, 401
-        )
+        with self.subTest("1.1 - rejeitar acesso sem autenticação"):
+            self.assertEqual(self.client.get("/auth/me").status_code, 401)
 
-        # Login real com conta demonstrativa.
-        response = self.login()
-        self.assertEqual(response.status_code, 200)
+        with self.subTest("1.2 - autenticar operador e emitir cookies"):
+            response = self.login()
+            self.assertEqual(response.status_code, 200)
+            user = response.get_json()["user"]
+            self.assertEqual(user["role"], "OPERATOR")
+            self.assertEqual(user["callCenterName"], "Logicall")
+            access = self.client.get_cookie("access_token_cookie")
+            csrf = self.client.get_cookie("csrf_access_token")
+            self.assertIsNotNone(access)
+            self.assertIsNotNone(csrf)
 
-        user = response.get_json()["user"]
-        self.assertEqual(user["role"], "OPERATOR")
-        self.assertEqual(user["callCenterName"], "Logicall")
+        with self.subTest("1.3 - consultar o usuário autenticado"):
+            response = self.client.get("/auth/me")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.get_json()["user"]["email"],
+                "ana@logicall.example",
+            )
 
-        access = self.client.get_cookie("access_token_cookie")
-        csrf = self.client.get_cookie("csrf_access_token")
-        self.assertIsNotNone(access)
-        self.assertIsNotNone(csrf)
+        with self.subTest("1.4 - exigir CSRF no logout e preservar sessão"):
+            self.assertEqual(self.client.post("/auth/logout").status_code, 401)
+            self.assertEqual(self.client.get("/auth/me").status_code, 200)
 
-        # O cookie autentica /me.
-        response = self.client.get("/auth/me")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.get_json()["user"]["email"],
-            "ana@logicall.example",
-        )
-
-        # Sem CSRF, não pode fazer logout.
-        response = self.client.post("/auth/logout")
-        self.assertEqual(response.status_code, 401)
-
-        # O token continua válido após a tentativa rejeitada.
-        self.assertEqual(
-            self.client.get("/auth/me").status_code, 200
-        )
-
-        # Logout com CSRF válido.
-        response = self.client.post(
-            "/auth/logout",
-            headers={"X-CSRF-TOKEN": csrf.value},
-        )
-        self.assertEqual(response.status_code, 200)
-
-        # Cookies foram limpos.
-        self.assertIsNone(
-            self.client.get_cookie("access_token_cookie")
-        )
-
-        # Reutilizar o JWT anterior não funciona.
-        self.client.set_cookie(
-            "access_token_cookie", access.value
-        )
-        self.assertEqual(
-            self.client.get("/auth/me").status_code, 401
-        )
+        with self.subTest("1.5 - revogar sessão após logout válido"):
+            response = self.client.post(
+                "/auth/logout",
+                headers={"X-CSRF-TOKEN": csrf.value},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertIsNone(self.client.get_cookie("access_token_cookie"))
+            self.client.set_cookie("access_token_cookie", access.value)
+            self.assertEqual(self.client.get("/auth/me").status_code, 401)
 
     def test_invalid_credentials_and_payload(self):
-        self.assertEqual(
-            self.login(password="senha-errada").status_code,
-            401,
-        )
+        with self.subTest("1.1 - rejeitar senha inválida"):
+            self.assertEqual(self.login(password="senha-errada").status_code, 401)
 
-        # JSON válido, mas estrutura inválida.
-        response = self.client.post(
-            "/auth/login",
-            json=["ana@logicall.example", "demo123"],
-        )
-        self.assertEqual(response.status_code, 400)
+        with self.subTest("1.2 - rejeitar payload de login inválido"):
+            response = self.client.post(
+                "/auth/login",
+                json=["ana@logicall.example", "demo123"],
+            )
+            self.assertEqual(response.status_code, 400)
 
     def test_operator_from_another_call_center(self):
-        response = self.login(
-            email="bruno@salesbound.example"
-        )
-        self.assertEqual(response.status_code, 200)
-
-        user = response.get_json()["user"]
-        self.assertEqual(user["callCenterName"], "Salesbound")
-        self.assertEqual(user["role"], "OPERATOR")
+        with self.subTest("1.1 - autenticar operador de outro call center"):
+            response = self.login(email="bruno@salesbound.example")
+            self.assertEqual(response.status_code, 200)
+            user = response.get_json()["user"]
+            self.assertEqual(user["callCenterName"], "Salesbound")
+            self.assertEqual(user["role"], "OPERATOR")
 
     def test_dashboard_metrics_are_admin_only(self):
-        self.assertEqual(
-            self.client.get("/dashboard/metrics").status_code,
-            401,
-        )
+        with self.subTest("1.1 - rejeitar acesso anônimo às métricas"):
+            self.assertEqual(self.client.get("/dashboard/metrics").status_code, 401)
 
-        self.assertEqual(
-            self.login().status_code,
-            200,
-        )
-        response = self.client.get("/dashboard/metrics")
-        self.assertEqual(response.status_code, 403)
+        with self.subTest("1.2 - rejeitar operador nas métricas administrativas"):
+            self.assertEqual(self.login().status_code, 200)
+            self.assertEqual(self.client.get("/dashboard/metrics").status_code, 403)
 
-        self.client = self.app.test_client()
-        self.assertEqual(
-            self.login(email="admin@elevate.dev").status_code,
-            200,
-        )
-        response = self.client.get("/dashboard/metrics")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            set(response.get_json()),
-            {
-                "total",
-                "receivedToday",
-                "distributed",
-                "pending",
-                "sales",
-                "conversionRate",
-            },
-        )
+        with self.subTest("1.3 - permitir administrador e retornar contadores"):
+            self.client = self.app.test_client()
+            self.assertEqual(self.login(email="admin@elevate.dev").status_code, 200)
+            response = self.client.get("/dashboard/metrics")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                set(response.get_json()),
+                {"total", "receivedToday", "distributed", "pending", "sales", "conversionRate"},
+            )
 
     def test_lab_deliveries_are_admin_only_and_have_real_counters(self):
         self.assertEqual(self.client.get('/api/lab/deliveries').status_code, 401)

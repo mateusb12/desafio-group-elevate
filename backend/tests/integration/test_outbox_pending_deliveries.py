@@ -33,34 +33,37 @@ class PendingDeliveryIntegrationTests(unittest.TestCase):
 
     def test_creation_persists_pending_delivery_with_minimal_payload(self):
         marker = uuid4().hex
-        response_status, response_body = post_lead(self.payload(marker))
-        self.assertEqual(response_status, 201, response_body)
-        lead_id = response_body["id"]
-
         try:
-            with db_session() as db:
-                lead = db.scalar(select(Lead).where(Lead.id == lead_id))
-                distribution = db.scalar(
-                    select(Distribution).where(Distribution.lead_id == lead_id)
-                )
-                delivery = db.scalar(
-                    select(OutboxPendingDelivery).where(
-                        OutboxPendingDelivery.distribution_id == distribution.id
-                    )
-                )
+            with self.subTest("1.1 - persistir lead, distribuição e entrega"):
+                response_status, response_body = post_lead(self.payload(marker))
+                self.assertEqual(response_status, 201, response_body)
+                lead_id = response_body["id"]
 
-            self.assertIsNotNone(lead)
-            self.assertIsNotNone(distribution)
-            self.assertIsNotNone(delivery)
-            self.assertEqual(delivery.event_type, "lead.distributed")
-            self.assertIsNone(delivery.published_at)
-            self.assertEqual(delivery.payload, {
-                "event_id": delivery.id,
-                "lead_id": lead_id,
-                "distribution_id": distribution.id,
-                "call_center_id": distribution.call_center_id,
-            })
-            self.assertEqual(delivery.payload["call_center_id"], lead.call_center_id)
+                with db_session() as db:
+                    lead = db.scalar(select(Lead).where(Lead.id == lead_id))
+                    distribution = db.scalar(
+                        select(Distribution).where(Distribution.lead_id == lead_id)
+                    )
+                    delivery = db.scalar(
+                        select(OutboxPendingDelivery).where(
+                            OutboxPendingDelivery.distribution_id == distribution.id
+                        )
+                    )
+
+                self.assertIsNotNone(lead)
+                self.assertIsNotNone(distribution)
+                self.assertIsNotNone(delivery)
+
+            with self.subTest("1.2 - manter entrega pendente com payload mínimo"):
+                self.assertEqual(delivery.event_type, "lead.distributed")
+                self.assertIsNone(delivery.published_at)
+                self.assertEqual(delivery.payload, {
+                    "event_id": delivery.id,
+                    "lead_id": lead_id,
+                    "distribution_id": distribution.id,
+                    "call_center_id": distribution.call_center_id,
+                })
+                self.assertEqual(delivery.payload["call_center_id"], lead.call_center_id)
         finally:
             self.cleanup_campaign(marker)
 
@@ -70,28 +73,30 @@ class PendingDeliveryIntegrationTests(unittest.TestCase):
         key = str(uuid4())
 
         try:
-            first_status, first_body = post_lead(payload, key)
-            second_status, second_body = post_lead(payload, key)
-            conflict_payload = self.payload(marker, "conflict")
-            conflict_payload["campaign"] = payload["campaign"]
-            conflict_status, _ = post_lead(conflict_payload, key)
+            with self.subTest("1.1 - retornar o mesmo lead para requisição repetida"):
+                first_status, first_body = post_lead(payload, key)
+                second_status, second_body = post_lead(payload, key)
+                self.assertEqual(first_status, 201, first_body)
+                self.assertEqual(second_status, 200, second_body)
+                self.assertEqual(second_body["id"], first_body["id"])
 
-            self.assertEqual(first_status, 201, first_body)
-            self.assertEqual(second_status, 200, second_body)
-            self.assertEqual(second_body["id"], first_body["id"])
-            self.assertEqual(conflict_status, 409)
+            with self.subTest("1.2 - rejeitar conflito de idempotência"):
+                conflict_payload = self.payload(marker, "conflict")
+                conflict_payload["campaign"] = payload["campaign"]
+                conflict_status, _ = post_lead(conflict_payload, key)
+                self.assertEqual(conflict_status, 409)
 
-            with db_session() as db:
-                delivery_count = db.scalar(
-                    select(func.count(OutboxPendingDelivery.id))
-                    .join(
-                        Distribution,
-                        Distribution.id == OutboxPendingDelivery.distribution_id,
+            with self.subTest("1.3 - não duplicar entrega pendente"):
+                with db_session() as db:
+                    delivery_count = db.scalar(
+                        select(func.count(OutboxPendingDelivery.id))
+                        .join(
+                            Distribution,
+                            Distribution.id == OutboxPendingDelivery.distribution_id,
+                        )
+                        .where(Distribution.lead_id == first_body["id"])
                     )
-                    .where(Distribution.lead_id == first_body["id"])
-                )
-
-            self.assertEqual(delivery_count, 1)
+                self.assertEqual(delivery_count, 1)
         finally:
             self.cleanup_campaign(marker)
 

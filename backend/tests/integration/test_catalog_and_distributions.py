@@ -114,81 +114,78 @@ class CatalogAndDistributionIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 400, body)
 
     def test_catalog_validation_and_association(self):
-        self.assert_bad_lead("missing-product", product="does-not-exist")
-        self.assert_bad_lead("missing-funnel", funnel="does-not-exist")
-        self.assert_bad_lead(
-            "missing-association",
-            product=self.orphan_product,
-            funnel=self.orphan_funnel,
-        )
+        with self.subTest("1.1 - rejeitar produto inexistente"):
+            self.assert_bad_lead("missing-product", product="does-not-exist")
+
+        with self.subTest("1.2 - rejeitar funil inexistente"):
+            self.assert_bad_lead("missing-funnel", funnel="does-not-exist")
+
+        with self.subTest("1.3 - rejeitar produto e funil sem associação"):
+            self.assert_bad_lead(
+                "missing-association",
+                product=self.orphan_product,
+                funnel=self.orphan_funnel,
+            )
 
 
     def test_valid_leads_affiliate_reuse_and_distribution(self):
-        first_status, first_body = post_lead(self.payload("valid-1"))
-        self.assertEqual(first_status, 201, first_body)
+        with self.subTest("1.1 - criar dois leads válidos"):
+            first_status, first_body = post_lead(self.payload("valid-1"))
+            self.assertEqual(first_status, 201, first_body)
+            second_status, second_body = post_lead(self.payload("valid-2"))
+            self.assertEqual(second_status, 201, second_body)
+            lead_ids = [first_body["id"], second_body["id"]]
 
-        second_status, second_body = post_lead(self.payload("valid-2"))
-        self.assertEqual(second_status, 201, second_body)
-
-        lead_ids = [first_body["id"], second_body["id"]]
-        with db_session() as db:
-            affiliate_count = db.scalar(
-                select(func.count(Affiliate.id)).where(
-                    Affiliate.id == self.external_affiliate
-                )
-            )
-            distributions = db.scalars(
-                select(Distribution).where(Distribution.lead_id.in_(lead_ids))
-            ).all()
-            pending_deliveries = db.scalars(
-                select(OutboxPendingDelivery).where(
-                    OutboxPendingDelivery.distribution_id.in_(
-                        [distribution.id for distribution in distributions]
+        with self.subTest("1.2 - reutilizar afiliado sem duplicá-lo"):
+            with db_session() as db:
+                affiliate_count = db.scalar(
+                    select(func.count(Affiliate.id)).where(
+                        Affiliate.id == self.external_affiliate
                     )
                 )
-            ).all()
-            leads = db.scalars(select(Lead).where(Lead.id.in_(lead_ids))).all()
+            self.assertEqual(affiliate_count, 1)
 
-        self.assertEqual(affiliate_count, 1)
-        self.assertEqual(len(distributions), 2)
-        self.assertEqual(len(pending_deliveries), 2)
-        self.assertTrue(all(
-            delivery.event_type == 'lead.distributed'
-            for delivery in pending_deliveries
-        ))
-        self.assertTrue(all(
-            delivery.published_at is None
-            for delivery in pending_deliveries
-        ))
-        self.assertEqual(
-            {
-                (delivery.payload['lead_id'], delivery.payload['distribution_id'],
-                 delivery.payload['call_center_id'], delivery.payload['event_id'])
+        with self.subTest("1.3 - distribuir leads e criar entregas pendentes"):
+            with db_session() as db:
+                distributions = db.scalars(
+                    select(Distribution).where(Distribution.lead_id.in_(lead_ids))
+                ).all()
+                pending_deliveries = db.scalars(
+                    select(OutboxPendingDelivery).where(
+                        OutboxPendingDelivery.distribution_id.in_(
+                            [distribution.id for distribution in distributions]
+                        )
+                    )
+                ).all()
+                leads = db.scalars(select(Lead).where(Lead.id.in_(lead_ids))).all()
+
+            self.assertEqual(len(distributions), 2)
+            self.assertEqual(len(pending_deliveries), 2)
+            self.assertTrue(all(
+                delivery.event_type == 'lead.distributed'
                 for delivery in pending_deliveries
-            },
-            {
-                (distribution.lead_id, distribution.id,
-                 distribution.call_center_id, delivery.id)
-                for distribution in distributions
-                for delivery in pending_deliveries
-                if delivery.distribution_id == distribution.id
-            },
-        )
-        self.assertEqual(
-            {distribution.lead_id for distribution in distributions},
-            set(lead_ids),
-        )
-        self.assertTrue(all(distribution.reason == "initial" for distribution in distributions))
-        self.assertEqual(
-            {
-                (lead.id, lead.call_center_id)
-                for lead in leads
-            },
-            {
-                (distribution.lead_id, distribution.call_center_id)
-                for distribution in distributions
-            },
-        )
+            ))
+            self.assertTrue(all(delivery.published_at is None for delivery in pending_deliveries))
+            self.assertEqual(
+                {
+                    (delivery.payload['lead_id'], delivery.payload['distribution_id'],
+                     delivery.payload['call_center_id'], delivery.payload['event_id'])
+                    for delivery in pending_deliveries
+                },
+                {
+                    (distribution.lead_id, distribution.id,
+                     distribution.call_center_id, delivery.id)
+                    for distribution in distributions
+                    for delivery in pending_deliveries
+                    if delivery.distribution_id == distribution.id
+                },
+            )
+            self.assertEqual({distribution.lead_id for distribution in distributions}, set(lead_ids))
+            self.assertTrue(all(distribution.reason == "initial" for distribution in distributions))
+            self.assertEqual(
+                {(lead.id, lead.call_center_id) for lead in leads},
+                {(distribution.lead_id, distribution.call_center_id) for distribution in distributions},
+            )
 
     def test_concurrent_new_affiliate_creation(self):
         payloads = [self.payload(f"affiliate-race-{number}") for number in range(20)]
