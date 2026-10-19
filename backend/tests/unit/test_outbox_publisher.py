@@ -9,7 +9,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://elevate:elevate-local-only@localhost:5433/elevate")
 
-from features.outbox.publisher import OutboxCounters, check_rabbitmq, publish_event, publish_outbox_batch
+from features.outbox.publisher import (
+    OutboxCounters,
+    check_rabbitmq,
+    clear_delivery_dead_letter_queue,
+    publish_event,
+    publish_outbox_batch,
+)
 
 
 class FakeChannel:
@@ -32,6 +38,10 @@ class FakeRabbitChannel:
 
     def close(self):
         return None
+
+    def queue_purge(self, **kwargs):
+        self.queue_purge_kwargs = kwargs
+        return SimpleNamespace(method=SimpleNamespace(message_count=3))
 
 
 class FakeRabbitConnection:
@@ -77,6 +87,15 @@ class OutboxPublisherTests(unittest.TestCase):
             )
 
         self.assertEqual(channel.queue_declare_kwargs, {"queue": "lead.distributed.invalid", "passive": True})
+
+    def test_clear_delivery_dead_letter_queue_purges_invalid_queue(self):
+        connection = FakeRabbitConnection()
+        channel = FakeRabbitChannel()
+
+        with patch("features.outbox.publisher.open_confirmed_channel", return_value=(connection, channel)):
+            self.assertEqual(clear_delivery_dead_letter_queue(), 3)
+
+        self.assertEqual(channel.queue_purge_kwargs, {"queue": "lead.distributed.invalid"})
 
     def test_publish_uses_confirmed_persistent_mandatory_json_message(self):
         channel = FakeChannel()

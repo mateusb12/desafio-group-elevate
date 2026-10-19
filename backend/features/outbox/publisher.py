@@ -127,6 +127,21 @@ def check_rabbitmq() -> dict:
         return {"state": "unavailable", "error": error.__class__.__name__}
 
 
+def clear_delivery_dead_letter_queue() -> int:
+    """Remove as mensagens persistidas na fila de falhas das entregas."""
+    connection = None
+    try:
+        connection, channel = open_confirmed_channel()
+        result = channel.queue_purge(queue=INVALID_QUEUE_NAME)
+        channel.close()
+        connection.close()
+        return result.method.message_count
+    except (AMQPError, OSError, TimeoutError):
+        if connection is not None and not connection.is_closed:
+            connection.close()
+        raise
+
+
 def pending_batch(limit: int) -> list[OutboxPendingDelivery]:
     with db_session() as db:
         return list(db.scalars(

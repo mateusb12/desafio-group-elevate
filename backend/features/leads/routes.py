@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from pika.exceptions import AMQPError
 
 from features.auth.models import User, UserRole
 from features.auth.permissions import admin_required
@@ -380,6 +381,13 @@ def clear_lab_leads():
                     reset_failures.append(name)
         except (HTTPError, URLError, TimeoutError, OSError):
             reset_failures.append(name)
+
+    try:
+        from features.outbox.publisher import clear_delivery_dead_letter_queue
+
+        clear_delivery_dead_letter_queue()
+    except (AMQPError, OSError, TimeoutError):
+        reset_failures.append('DLQ do RabbitMQ')
 
     if reset_failures:
         return jsonify(
