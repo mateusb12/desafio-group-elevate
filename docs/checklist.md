@@ -77,10 +77,10 @@ Começar pelas telas e fluxos abaixo usando dados de exemplo. Depois, conectar c
 
 ## Etapa 3 — Confiabilidade, segurança e entrega
 
-- [ ] **Testes automatizados**
-  - [ ] Unitários para validação, algoritmo de distribuição e regras de transição de status.
-  - [ ] Integração para `POST /api/leads` e `POST /api/webhooks/callcenter`.
-  - [ ] Concorrência: múltiplas requisições simultâneas e consistência da distribuição.
+- [x] **Testes automatizados**
+  - [x] Unitários para validação, algoritmo de distribuição e regras de transição de status.
+  - [x] Integração para `POST /api/leads` e `POST /api/webhooks/callcenter`.
+  - [x] Concorrência: múltiplas requisições simultâneas e consistência da distribuição.
 - [ ] **Segurança da aplicação**
   - [ ] Revisar autenticação, autorização, validação de entrada, SQL injection, XSS e CSRF quando aplicável.
   - [ ] Considerar brute force, rate limiting, exposição de dados sensíveis e segurança dos webhooks.
