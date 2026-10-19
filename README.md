@@ -44,11 +44,16 @@ O fluxo automático é **API → Outbox PostgreSQL → Outbox Service → Rabbit
 Delivery Worker → POST `/leads`**.
 
 - O worker escolhe o endpoint pelo `call_center_id`.
-- A mensagem só é confirmada depois de uma resposta HTTP 2xx.
-- O estado da entrega é salvo em `delivery_leads_to_call_centers`.
+- Quando o call center confirma o recebimento, o worker salva a entrega no
+  PostgreSQL e confirma a mensagem no RabbitMQ.
+- Se houver uma falha temporária, o worker salva a próxima tentativa no
+  PostgreSQL antes de confirmar a mensagem. Depois, o scheduler tenta de novo.
+- Falhas definitivas são encaminhadas para a fila `lead.distributed.invalid`.
+- O estado da entrega fica salvo em `delivery_leads_to_call_centers`.
 - Cada simulador guarda os `event_id` em SQLite, usando um volume Docker.
-- Se a mesma mensagem for reenviada, o simulador responde `duplicate=true` sem
-  repetir a entrega.
+- O worker reconhece eventos já entregues e evita novos envios HTTP. Se o
+  simulador receber o mesmo `event_id` novamente, responde `duplicate=true`
+  sem repetir o efeito.
 
 Se a entrega der errado, o worker tenta de novo. Mensagens inválidas ou que
 continuarem dando erro vão para a fila `lead.distributed.invalid`.
@@ -87,9 +92,13 @@ Stack e fluxo principal:
 - Logicall, Salesbound e AtendeMais são serviços fictícios usados para testar
   o envio dos leads.
 
-### Evolução arquitetural: Outbox transacional e Delivery Worker
+Escolhi o RabbitMQ para separar o cadastro do lead do envio aos call centers.
+Assim, se um serviço externo estiver fora do ar, o lead ainda pode ser salvo.
+A Outbox guarda o envio pendente, o RabbitMQ separa as etapas e o Delivery
+Worker tenta fazer a entrega em segundo plano. Essa escolha facilita os testes
+de recuperação, mas também aumenta a complexidade da aplicação.
 
-### Como funciona o envio
+### Evolução arquitetural: Outbox transacional e Delivery Worker
 
 Quando um lead é criado, o sistema salva uma entrega pendente em
 `outbox_pending_deliveries`. Essa gravação acontece junto com o lead e a
@@ -106,13 +115,19 @@ O envio acontece nesta ordem:
 3. O Delivery Worker envia o lead para o call center escolhido.
 4. O sistema atualiza o status da entrega no banco.
 
-Se o RabbitMQ estiver fora do ar, a entrega continua pendente e o retry irá acontecer novamente depois. Como pode haver reenvios, o fluxo usa a estratégia
-**at-least-once**. O worker e os serviços fictícios verificam o `event_id` para
-evitar que o mesmo lead seja processado duas vezes.
+Se o RabbitMQ estiver fora do ar, a entrega continua pendente até o serviço
+voltar. Se o call center voltar antes de esgotar as tentativas, a entrega será
+retomada automaticamente. Caso contrário, a mensagem permanece na fila de
+falhas para reprocessamento futuro.
+
+Como pode haver reenvios, o fluxo usa a estratégia **at-least-once**. O worker
+e os serviços fictícios verificam o `event_id` para evitar que o mesmo evento
+de entrega produza efeitos duplicados.
 
 Para testar as falhas, pare um dos serviços, crie um lead e ligue o serviço
-novamente. O envio pendente será retomado. Se a mesma mensagem for enviada
-mais de uma vez, a resposta será `duplicate=true`.
+novamente. O envio será retomado se ainda houver tentativas disponíveis. Caso
+contrário, a mensagem ficará na fila de falhas. Se a mesma mensagem for
+enviada mais de uma vez, a resposta será `duplicate=true`.
 
 ## 6–7. Recebimento e validação
 
@@ -180,13 +195,16 @@ Principais tabelas:
 - `distributions`: histórico dos call centers escolhidos.
 - `users`: usuários e perfis de acesso.
 - `token_blocklist`: tokens que foram revogados.
+- `outbox_pending_deliveries`: envios que ainda precisam ser processados.
+- `delivery_leads_to_call_centers`: situação de cada entrega.
 
 O banco usa dez migrations Alembic, da `d86498fb27a3` até a atual
 `c5d7e9f1a2b3`. Elas criam o schema, os catálogos, o histórico de distribuição
 e as tabelas usadas no envio dos leads.
 
-Hoje existem **12 tabelas principais** no PostgreSQL, além da tabela usada pelo
-Alembic. Os serviços de envio também usam SQLite para guardar seu próprio estado.
+Hoje existem **14 tabelas principais** no PostgreSQL, além da tabela usada pelo
+Alembic. Os três simuladores usam SQLite para guardar os `event_id` que já
+receberam e evitar entregas repetidas.
 
 No ambiente local, o seed cria os dados de demonstração depois que as migrations
 terminam. A atualização de um banco antigo ainda precisa de um plano próprio
@@ -439,11 +457,15 @@ Não adicionei serviços extras sem uma necessidade clara.
 ### Limitações conhecidas e próximas evoluções
 
 - **Limite de tentativas:** ainda não há proteção contra muitas tentativas de
-  login ou contra excesso de requisições. No futuro, esses limites devem ser
-  aplicados ao login, aos leads e aos webhooks.
+  login ou contra excesso de requisições. No futuro, usaria Flask-Limiter com
+  Redis compartilhado entre as instâncias da API. O login teria limites por IP
+  e por conta; leads e webhooks teriam limites por cliente ou credencial. Quem
+  ultrapassasse o limite receberia HTTP `429`.
 - **Mensagens que não foram entregues:** elas ficam guardadas, mas ainda não há
-  uma tela para tentar o envio novamente. Isso pode ser adicionado depois, com
-  controle de acesso e histórico das tentativas.
+  uma tela para tentar o envio novamente. Se todas as tentativas acabarem, a
+  mensagem vai para a fila de falhas, mas o reprocessamento ainda não é
+  automático. Isso pode ser adicionado depois, com controle de acesso e
+  histórico das tentativas.
 - **Call center fora do ar:** o lead não é enviado automaticamente para outro
   call center. Essa troca precisa seguir uma regra de negócio definida.
 - **Crescimento do sistema:** antes de mudar a forma de distribuição, é preciso
@@ -501,7 +523,7 @@ artefatos realmente usados ficaram registrados no Git.
 | Área (itens do PDF) | Situação |
 | --- | --- |
 | Arquitetura, recebimento e idempotência (5–8) | Concluído |
-| Banco e migrations (9) | Concluído; 12 tabelas e 10 revisions Alembic validadas |
+| Banco e migrations (9) | Concluído; 14 tabelas e 10 revisions Alembic validadas |
 | Índices e escala (10–11) | Parcial; planejamento de escala documentado |
 | Dispatcher e webhooks (12–17) | Concluído |
 | Interface, segurança e testes (18–23) | Parcial |
