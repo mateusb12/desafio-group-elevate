@@ -12,17 +12,18 @@ Serviços disponíveis:
 
 - Frontend: <http://localhost:5173>
 - API: <http://localhost:5000>
-- PostgreSQL: `localhost:5433` (`elevate` / `elevate-local-only`)
-- RabbitMQ Management UI: <http://localhost:15672>
+- PostgreSQL: `localhost:5433` (`user: elevate`, `password: elevate-local-only`)
+- RabbitMQ Management UI: <http://localhost:15672> (`user: elevate`,
+  `password: elevate-local-only` por padrão)
 - Simuladores HTTP: Logicall (`http://localhost:8101`), Salesbound
   (`http://localhost:8102`) e AtendeMais (`http://localhost:8103`)
 
 Os três simuladores representam APIs externas fictícias para testar a
-integração com os call centers cadastrados: Logicall (`call-center-a`),
-Salesbound (`call-center-b`) e AtendeMais (`call-center-c`). Internamente, os
-endpoints são `http://logicall:8101/leads`,
-`http://salesbound:8102/leads` e `http://atendemais:8103/leads`; no host,
-as mesmas APIs ficam disponíveis nas portas locais 8101, 8102 e 8103.
+integração com os call centers cadastrados:
+
+- Logicall (`call-center-a`): `http://logicall:8101/leads`;
+- Salesbound (`call-center-b`): `http://salesbound:8102/leads`;
+- AtendeMais (`call-center-c`): `http://atendemais:8103/leads`.
 
 Depois de iniciar o Compose, teste a saúde e o recebimento de um lead:
 
@@ -40,26 +41,20 @@ curl -X POST http://localhost:8103/leads \
 ```
 
 O fluxo automático é **API → Outbox PostgreSQL → Outbox Service → RabbitMQ →
-Delivery Worker → POST `/leads`**. O worker escolhe o endpoint pelo
-`call_center_id`, confirma manualmente somente depois do HTTP 2xx e grava o
-estado em `delivery_leads_to_call_centers`. Cada simulador persiste `event_id` em SQLite no
-volume Docker; uma redelivery retorna `duplicate=true` sem repetir o efeito.
+Delivery Worker → POST `/leads`**.
 
-RabbitMQ fica disponível no Management UI em <http://localhost:15672>.
-As credenciais locais são `RABBITMQ_DEFAULT_USER` e `RABBITMQ_DEFAULT_PASS`
-(por padrão, `elevate` / `elevate-local-only`). Observe o fluxo com:
-`docker compose logs -f outbox-service delivery-worker`.
+- O worker escolhe o endpoint pelo `call_center_id`.
+- A mensagem só é confirmada depois de uma resposta HTTP 2xx.
+- O estado da entrega é salvo em `delivery_leads_to_call_centers`.
+- Cada simulador guarda os `event_id` em SQLite, usando um volume Docker.
+- Se a mesma mensagem for reenviada, o simulador responde `duplicate=true` sem
+  repetir a entrega.
 
-O worker usa timeout HTTP e retry exponencial durável (dez tentativas por
-padrão, com teto de 30 segundos entre tentativas). Mensagens inválidas e falhas finais vão para a fila durável
-`lead.distributed.invalid`; tarefas de destinos diferentes são processadas
-independentemente.
+Se a entrega der errado, o worker tenta de novo. Mensagens inválidas ou que
+continuarem dando erro vão para a fila `lead.distributed.invalid`.
 
-Pare com `docker compose down`, sem apagar o volume.
-
-No ambiente local, `SEED_DEMO=1` mantém os usuários, centros, produtos, funis,
-associações e status demonstrativos disponíveis automaticamente. Para descartar
-os dados mockados e repopular tudo no próximo startup, use `RESET_DEMO=1`:
+No ambiente local, o projeto já sobe com dados de demonstração. Para apagar
+esses dados e criar tudo de novo, use `RESET_DEMO=1`:
 
 ```bash
 RESET_DEMO=1 docker compose up --build
@@ -67,7 +62,14 @@ RESET_DEMO=1 docker compose up --build
 
 Esse reset é destrutivo e serve somente para o banco local de demonstração.
 
-Contas demo (senha `demo123`): `admin@elevate.dev` (ADMIN), `ana@logicall.example` (Logicall), `bruno@salesbound.example` (Salesbound), `carla@atendemais.example` (AtendeMais). Não representam integrações reais.
+Contas demo — todas usam a senha `demo123`:
+
+- `admin@elevate.dev` (ADMIN);
+- `ana@logicall.example` (Logicall);
+- `bruno@salesbound.example` (Salesbound);
+- `carla@atendemais.example` (AtendeMais).
+
+Essas contas não representam integrações reais.
 
 ## 5. Aplicação e arquitetura
 
@@ -79,48 +81,38 @@ Stack e fluxo principal:
 - Fluxo: formulário → `POST /api/leads` → validação/contato → dispatcher → call center registrado no lead → `POST /api/webhooks/callcenter` → histórico/status → interface.
 - Organização do backend: features verticais em `backend/features/` e
   infraestrutura compartilhada em `backend/shared/`.
-- A atribuição é persistida no banco.
-- Não há filas, Redis ou envio para call centers reais.
+- O call center escolhido fica salvo no banco.
+- O envio é feito em segundo plano pelo RabbitMQ, Outbox Service e Delivery
+  Worker.
+- Logicall, Salesbound e AtendeMais são serviços fictícios usados para testar
+  o envio dos leads.
 
 ### Evolução arquitetural: Outbox transacional e Delivery Worker
 
-O sistema também persiste a intenção de encaminhar cada distribuição na tabela
-`outbox_pending_deliveries`. Ela é diferente de `events`: `events` registra o
-histórico de status do lead, enquanto `outbox_pending_deliveries` registra uma
-entrega de integração que poderá ser processada futuramente por um publisher.
+### Como funciona o envio
 
-O registro pendente é criado na mesma transação SQL do lead e da distribuição.
-Assim, uma falha reverte todas as partes juntas e não deixa uma distribuição
-sem a intenção correspondente de publicação. O payload contém somente os IDs
-do evento, lead, distribuição e call center; não inclui dados pessoais.
+Quando um lead é criado, o sistema salva uma entrega pendente em
+`outbox_pending_deliveries`. Essa gravação acontece junto com o lead e a
+distribuição. Se algo der errado, nenhuma dessas informações é salva.
 
-O fluxo é: **Persistido na Outbox → Publicado no RabbitMQ → Entregue ao call
-center**. O LAB Entregas mantém esses estados separados de retry e falha final.
+A tabela `events` guarda o histórico do lead. Já a Outbox guarda os envios que
+ainda precisam ser processados. Ela armazena apenas os IDs necessários, sem
+dados pessoais.
 
-O **Outbox Service** consulta eventos pendentes em lotes pequenos, declara a
-fila durável `lead.distributed` e publica mensagens JSON persistentes com
-publisher confirms e `mandatory=true`. Só depois da confirmação positiva e do
-roteamento para a fila ele preenche `published_at`. PostgreSQL e RabbitMQ não
-compartilham um commit distribuído: se o broker estiver indisponível, o lead
-continua sendo confirmado e o evento permanece pendente para retry.
+O envio acontece nesta ordem:
 
-Essa é uma publicação **at-least-once**. Se RabbitMQ confirmar e a atualização
-posterior no PostgreSQL falhar, a próxima tentativa pode publicar novamente o
-mesmo `event_id`; não há promessa de exactly-once. O Delivery Worker consulta
-`delivery_leads_to_call_centers` antes de reenviar e os simuladores usam o mesmo identificador
-como chave persistente. Isso torna segura a redelivery depois de um `ack` perdido,
-sem fingir que existe uma transação distribuída com o HTTP externo.
+1. A entrega é salva na Outbox.
+2. O Outbox Service publica a mensagem na fila `lead.distributed` do RabbitMQ.
+3. O Delivery Worker envia o lead para o call center escolhido.
+4. O sistema atualiza o status da entrega no banco.
 
-Para demonstrar a recuperação: execute `docker compose stop rabbitmq`, gere
-leads no LAB Leads e observe os pendentes aumentarem; depois execute
-`docker compose start rabbitmq` e acompanhe os logs e os contadores do LAB.
+Se o RabbitMQ estiver fora do ar, a entrega continua pendente e o retry irá acontecer novamente depois. Como pode haver reenvios, o fluxo usa a estratégia
+**at-least-once**. O worker e os serviços fictícios verificam o `event_id` para
+evitar que o mesmo lead seja processado duas vezes.
 
-Para demonstrar falha parcial, execute `docker compose stop logicall`, gere
-leads e observe `retry_scheduled` enquanto Salesbound e AtendeMais continuam
-entregando. Execute `docker compose start logicall` e atualize o LAB. Para
-demonstrar duplicação, republique o mesmo JSON no RabbitMQ Management ou
-reinicie o worker durante o POST; o simulador registra `duplicate=true` e não
-repete o efeito persistido.
+Para testar as falhas, pare um dos serviços, crie um lead e ligue o serviço
+novamente. O envio pendente será retomado. Se a mesma mensagem for enviada
+mais de uma vez, a resposta será `duplicate=true`.
 
 ## 6–7. Recebimento e validação
 
@@ -148,59 +140,57 @@ transacionalmente ao receber o lead.
 
 ## 8. Duplicidade e idempotência
 
-- [x] Identificar reenvios por Idempotency-Key, com unicidade e proteção concorrente.
+- [x] Evitar cadastros duplicados quando o mesmo lead é enviado novamente.
 
-A identidade do cadastro vem do header **`Idempotency-Key` (UUID v4)**, criado pelo remetente.
+O sistema usa o header **`Idempotency-Key` (UUID v4)** para identificar cada
+cadastro. Quem envia o lead deve criar uma chave para cada novo cadastro e
+reutilizar essa mesma chave quando precisar tentar de novo.
 
-- Nova operação: usa uma chave nova.
-- Reenvio: reutiliza a chave original.
-- A chave é persistida em `leads.idempotency_key`.
-- `payload_hash` compara o conteúdo validado.
-- Duas operações distintas podem ter dados iguais, desde que usem chaves diferentes.
+- A chave fica salva em `leads.idempotency_key`.
+- O sistema compara os dados enviados para confirmar se o reenvio é o mesmo.
+- Dois cadastros podem ter os mesmos dados, desde que usem chaves diferentes.
 
-| Caso | HTTP | Efeito |
+| Situação | HTTP | Resultado |
 | --- | --- | --- |
-| Chave inédita | `201` | Cria lead e distribuição |
-| Mesma chave e mesmo payload | `200` | Devolve mesmo ID (`duplicate: true`) |
-| Mesma chave, payload diferente | `409` | Rejeita conflito |
-| Mesmo payload, chave diferente | `201` | Nova operação legítima |
-| Chave ausente/inválida | `400` | Rejeita entrada |
+| Chave nova | `201` | Cria o lead e a distribuição |
+| Mesma chave e mesmos dados | `200` | Retorna o mesmo ID (`duplicate: true`) |
+| Mesma chave e dados diferentes | `409` | Retorna conflito |
+| Mesmos dados e chave diferente | `201` | Cria outro lead |
+| Chave ausente ou inválida | `400` | Rejeita a requisição |
 
-A unicidade da chave é garantida no banco. Um `pg_advisory_xact_lock` derivado do UUID coordena tentativas simultâneas com a mesma chave até `COMMIT`/`ROLLBACK`.
+O banco não permite repetir a mesma chave. Se duas requisições usarem a mesma
+chave ao mesmo tempo, o PostgreSQL organiza a ordem de processamento para
+evitar duplicação.
 
 ## 9. Banco de dados
 
-- [x] Persistir contatos, leads, call centers, usuários e histórico de eventos.
-- [x] Versionar alterações do schema com migrations.
-- [x] Modelar Product, Funnel, ProductFunnel, Affiliate, LeadStatus e Distribution como entidades relacionais.
+- [x] Salvar contatos, leads, call centers, usuários e histórico de eventos.
+- [x] Controlar as mudanças do banco com migrations.
 
 Principais tabelas:
 
-- `contacts`: representa a pessoa.
-- `products`: catálogo dos produtos cadastrados.
-- `funnels`: catálogo dos funis cadastrados.
-- `product_funnels`: associações N:N entre produtos e funis.
-- `affiliates`: afiliados externos, criados transacionalmente quando aparecem pela primeira vez.
-- `lead_statuses`: catálogo dos status aceitos por leads e eventos.
-- `leads`: mantém referências de produto, funil, afiliado, origem, destino e status atual.
-- `call_centers`: guarda os pesos de distribuição.
-- `events`: armazena o histórico.
-- `distributions`: histórico de cada atribuição, incluindo a distribuição inicial.
-- `users`: armazena os perfis.
-- `token_blocklist`: registra tokens JWT revogados.
+- `contacts`: dados de contato.
+- `leads`: dados do lead e seu status atual.
+- `products` e `funnels`: catálogos usados nos cadastros.
+- `product_funnels`: liga produtos aos funis disponíveis.
+- `affiliates`: afiliados informados nos leads.
+- `lead_statuses`: status aceitos pelo sistema.
+- `call_centers`: call centers e seus pesos de distribuição.
+- `events`: histórico de alterações do lead.
+- `distributions`: histórico dos call centers escolhidos.
+- `users`: usuários e perfis de acesso.
+- `token_blocklist`: tokens que foram revogados.
 
-O schema é versionado pelas revisions Alembic 001–007. A revisão 002 cria o catálogo
-de produtos; as revisions 003–007 adicionam funis, associações produto/funil,
-afiliados, status e histórico de distribuições. `leads.call_center_id` continua
-representando o destino atual, enquanto `distributions` preserva o histórico.
+O banco usa dez migrations Alembic, da `d86498fb27a3` até a atual
+`c5d7e9f1a2b3`. Elas criam o schema, os catálogos, o histórico de distribuição
+e as tabelas usadas no envio dos leads.
 
-O modelo atual possui **12 tabelas de aplicação**, além de `alembic_version`.
-As revisions Alembic atuais criam as tabelas e constraints; o seed local (`SEED_DEMO=1`)
-povoa os catálogos depois de aplicar as migrations. **As revisions regeneradas não
-incluem backfill de dados legados.** Para atualizar uma base com dados anteriores,
-é necessário planejar a migração desses registros antes de acrescentar as FKs.
-Os números de constraints e os testes com backfill divulgados anteriormente
-referiam-se à versão anterior das revisions e precisam ser revalidados.
+Hoje existem **12 tabelas principais** no PostgreSQL, além da tabela usada pelo
+Alembic. Os serviços de envio também usam SQLite para guardar seu próprio estado.
+
+No ambiente local, o seed cria os dados de demonstração depois que as migrations
+terminam. A atualização de um banco antigo ainda precisa de um plano próprio
+para migrar os dados existentes.
 
 ## 10. Índices
 
@@ -243,6 +233,12 @@ Possíveis evoluções:
 
 - Substituir a contagem global do dispatcher por contadores transacionais por centro.
 - Avaliar filas e particionamento somente após medir a demanda.
+
+Para volumes acima de 10 milhões, a próxima etapa seria medir os planos com
+`EXPLAIN ANALYZE`, avaliar paginação por cursor nas listas, acompanhar o
+crescimento de `events` e `distributions` e investigar a contenção do advisory
+lock do dispatcher. Particionamento por data só seria considerado se essas
+medições justificassem a complexidade.
 
 **Nada disso é apresentado como já implementado.**
 
@@ -362,7 +358,7 @@ Controles implementados:
 ## 23. Testes e LAB
 
 - [x] Cobrir autenticação, validação, dispatcher e cenários concorrentes de webhook.
-- [ ] Reexecutar a suíte completa após a regeneração das migrations e os últimos fluxos de atendimento.
+- [x] Reexecutar a suíte completa após a regeneração das migrations e os últimos fluxos de atendimento.
 - [x] Testar bloqueio de leitura e alteração de leads de outro call center.
 - [x] Adicionar testes das APIs de métricas, pesos e filtros.
 - [x] Adicionar testes de detalhe, atualização de status e isolamento por call center.
@@ -392,14 +388,18 @@ As suítes de integração também verificam concorrência real no PostgreSQL, i
 docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Em uma rodada anterior (18/10/2026), passaram 20 testes backend,
-além dos testes específicos de 100 leads concorrentes (50/30/20),
-50 reenvios idempotentes, criação concorrente de afiliados e webhooks.
-**Esses resultados antecedem a regeneração das migrations e os últimos commits**;
-a execução completa no estado atual ainda precisa ser confirmada.
+Validação final executada em 18/10/2026:
 
-**Ainda pendente:** revalidar o schema atual a partir de um PostgreSQL vazio,
-executar toda a suíte de regressão e cobrir eventuais condições limite.
+- `docker compose up --build -d`: build e inicialização do Compose concluídos;
+- `docker compose exec -T backend python -m unittest discover -s tests -p 'test_*.py' -v`: **56 testes aprovados**;
+- migrations aplicadas e `alembic current`: `c5d7e9f1a2b3 (head)`;
+- concorrência real: 100 leads com distribuição 50/30/20, 50 reenvios idempotentes e contenção observada no advisory lock;
+- frontend: TypeScript e build Vite aprovados;
+- smoke tests: `/ping` da API e health checks dos três simuladores aprovados.
+
+A execução acima validou a atualização do schema no banco local do Compose; uma
+execução adicional partindo de um volume PostgreSQL vazio continua sendo uma
+checagem operacional recomendada antes de um deploy novo.
 
 ## 27–28. Priorização, limitações e stack
 
@@ -416,6 +416,27 @@ Prioridades da implementação:
 Stack escolhida por familiaridade e baixo custo operacional: Flask, SQLAlchemy, PostgreSQL, Pydantic, React, TypeScript, Vite, Docker Compose e uv.
 
 Evitei infraestrutura extra sem necessidade comprovada.
+
+### Limitações conhecidas e próximas evoluções
+
+- **Rate limiting e brute force (não implementados):** priorizaria os endpoints
+  de autenticação, recebimento de leads e webhooks. Em múltiplas instâncias,
+  usaria Flask-Limiter com armazenamento compartilhado em Redis, retornando
+  `429` e `Retry-After`. No login, combinaria limites por IP e por conta; na
+  API de leads, por cliente ou credencial de integração. Os limites seriam
+  calibrados com tráfego real e testes de recuperação após o bloqueio.
+- **DLQ:** falhas definitivas ficam preservadas, mas ainda não há redrive
+  automático. Uma evolução seria oferecer reprocessamento administrativo,
+  com auditoria e limite de tentativas.
+- **Redistribuição:** se um call center ficar offline, o lead não muda
+  automaticamente de destino. Isso depende de regras de negócio explícitas
+  para evitar duplicidade ou perda de atribuição.
+- **Escalabilidade:** o dispatcher usa advisory lock transacional; a contenção
+  precisa ser medida sob volumes muito maiores antes de trocar a estratégia.
+- **Segurança de produção:** ainda exigem atenção HTTPS, cookies `Secure`,
+  gerenciamento de segredos e configuração apropriada de deploy.
+- **Observabilidade:** o LAB demonstra métricas e estados do fluxo, mas não
+  substitui métricas de produção, alertas, tracing e monitoramento operacional.
 
 ## Como usei IA (item 3)
 
@@ -440,7 +461,7 @@ Não utilizei arquivos persistentes de instruções como `AGENTS.md` ou `CLAUDE.
 | Área (itens do PDF) | Situação |
 | --- | --- |
 | Arquitetura, recebimento e idempotência (5–8) | Concluído |
-| Banco e migrations (9) | Concluído; 12 tabelas e revisions 001–007 validadas |
+| Banco e migrations (9) | Concluído; 12 tabelas e 10 revisions Alembic validadas |
 | Índices e escala (10–11) | Parcial; planejamento de escala documentado |
 | Dispatcher e webhooks (12–17) | Concluído |
 | Interface, segurança e testes (18–23) | Parcial |
