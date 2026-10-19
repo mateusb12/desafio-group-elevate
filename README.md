@@ -225,18 +225,18 @@ Estratégia por volume:
 - A partir de 1 milhão: filtros e paginação no backend, além de análise dos planos de consulta.
 - Acima de 10 milhões: monitoramento do histórico e reavaliação dos gargalos.
 
-Possíveis evoluções:
+Se o volume crescer, podemos guardar a quantidade de leads de cada call center
+de forma separada, evitando novas contagens no banco a cada distribuição. Também
+podemos estudar o uso de filas e o particionamento das tabelas, mas só depois
+de medir o desempenho do sistema.
 
-- Substituir a contagem global do dispatcher por contadores transacionais por centro.
-- Avaliar filas e particionamento somente após medir a demanda.
+Para volumes acima de 10 milhões, a próxima etapa seria medir as consultas com
+`EXPLAIN ANALYZE`, testar uma forma mais rápida de carregar listas grandes,
+acompanhar o crescimento de `events` e `distributions` e verificar a % de requisições que ficam aguardando sua vez para distribuir leads. 
 
-Para volumes acima de 10 milhões, a próxima etapa seria medir os planos com
-`EXPLAIN ANALYZE`, avaliar paginação por cursor nas listas, acompanhar o
-crescimento de `events` e `distributions` e investigar a contenção do advisory
-lock do dispatcher. Particionamento por data só seria considerado se essas
-medições justificassem a complexidade.
+O particionamento por data só seria considerado se essas medições mostrassem que ele é realmente necessário.
 
-**Nada disso é apresentado como já implementado.**
+
 
 ## 12. Lead Dispatcher
 
@@ -250,24 +250,36 @@ Pesos atuais:
 
 Em cada cadastro, o algoritmo:
 
-1. Compara a quantidade atual de leads com a quantidade esperada após a próxima atribuição.
-2. Escolhe o maior **déficit ponderado**.
+1. Compara quantos leads cada call center recebeu com a proporção esperada.
+2. Escolhe o maior **déficit ponderado** (o call center que mais está abaixo
+   da sua proporção esperada).
 3. Grava o `call_center_id` escolhido.
 
-Essa abordagem mantém a proporção mais estável em amostras pequenas do que sorteios independentes. A edição dos pesos na interface é persistida pelo backend e usada pelo dispatcher real.
+Assim, a distribuição fica mais próxima de 50/30/20 mesmo com poucos leads.
+Os pesos alterados na tela são salvos no backend e usados nas próximas
+distribuições.
 
 ## 13. Concorrência
 
-- [x] Proteger a decisão do dispatcher com advisory lock transacional.
-- [x] Validar concorrência real com 100 cadastros.
+- [x] Evitar decisões erradas quando vários leads chegam ao mesmo tempo.
+- [x] Testar a distribuição com 100 cadastros simultâneos.
 
-O dispatcher:
+Imagine uma fila na porta do dispatcher. Antes de escolher o call center, cada
+http request espera sua vez, consulta os números atuais do banco e salva sua decisão. 
 
-- Usa `pg_advisory_xact_lock(41625, 20261017)` antes de consultar as contagens.
-- Mantém o lock até o `COMMIT` da atribuição.
-- Impede que duas requisições decidam com base no mesmo estado desatualizado.
+A fila é criada com `pg_advisory_xact_lock` e dura até a transação terminar.
 
-**Não é lock do banco inteiro**: apenas as transações que usam essa chave são coordenadas. Os testes verificaram 100 cadastros concorrentes, proporção 50/30/20 e requisições efetivamente esperando o lock no PostgreSQL.
+Esse lock protege apenas a **decisão de distribuição**: 
+- consultar as quantidades
+- escolher o call center
+- salvar o resultado. 
+
+O lock não trava uma tabela inteira, não trava uma linha específica ou o banco inteiro. 
+Todas as outras operações continuam funcionando
+normalmente.
+
+Os testes confirmaram que 100 leads concorrentes mantêm a proporção 50/30/20 e
+que algumas requisições realmente esperam sua vez no PostgreSQL.
 
 ## 14. Webhook do call center
 
@@ -288,21 +300,27 @@ O evento é registrado no histórico e pode atualizar o status atual.
 
 - [x] Deduplicar eventos por (lead_id, external_id) e tratar conflitos.
 
-Um acontecimento é identificado por **`(lead_id, external_id)`**:
+Chave de idempotência: **`(lead_id, external_id)`**:
 
 - Novo evento → `201`.
 - Mesmo ID, status e horário → `200` (`duplicate: true`).
 - Mesmo ID com dados conflitantes → `409`.
 
-O banco também impõe `UNIQUE(lead_id, external_id)`. O `SELECT ... FOR UPDATE` na linha do lead serializa webhooks do mesmo lead, sem bloquear o processamento de outros leads.
+O banco não deixa o mesmo evento entrar duas vezes: cada combinação de
+`lead_id` e `external_id` precisa ser única. Quando dois webhooks do mesmo lead
+chegam juntos, eles entram numa pequena fila exclusiva desse lead. Enquanto um
+é processado, o outro espera; webhooks de outros leads continuam normalmente.
 
 ## 16. Eventos fora de ordem
 
 - [x] Persistir eventos atrasados sem regredir o status atual.
 
-Eventos inéditos atrasados entram no histórico, mas **só alteram `leads.status` se `event_at` superar o último horário registrado**.
+Um evento pode chegar atrasado e ainda assim fica salvo no histórico. Porém, o
+status atual só muda quando o evento é mais recente que o último status salvo.
 
-Por exemplo, um `contacted` das 14h não desfaz uma `sale` das 14h30 recebida primeiro. Não impus um stepper rígido entre status.
+Por exemplo: se uma venda das 14h30 chegar primeiro, um contato das 14h não
+vai fazer o lead voltar no passado. Os status também não precisam seguir uma
+ordem fixa.
 
 ## 17. Segurança do webhook
 
@@ -328,13 +346,16 @@ Controles da integração:
 
 A lista consulta leads reais por `GET /api/leads`:
 
-- ADMIN vê todos os leads.
-- OPERATOR vê apenas os leads do próprio call center, **com restrição no backend**.
-- A tela envia os filtros por período, produto, funil, origem, centro, status e busca para o backend.
-- A API aplica paginação no banco e devolve metadados com total de leads e páginas.
-- `GET /api/leads/<id>` retorna os dados do lead e o histórico de eventos.
-- `PATCH /api/leads/<id>/status` atualiza o status e registra um novo evento na mesma transação.
-- O backend restringe consulta e alteração de operadores ao próprio call center; leads fora do escopo retornam `404`.
+- O ADMIN pode ver todos os leads.
+- Cada OPERATOR vê apenas os leads do seu call center.
+- É possível filtrar a lista por período, produto, funil, origem, call center,
+  status e texto de busca.
+- A lista é dividida em páginas e mostra o total de resultados.
+- `GET /api/leads/<id>` mostra os dados do lead e seu histórico.
+- `PATCH /api/leads/<id>/status` altera o status e registra essa mudança no
+  histórico.
+- Se um operador tentar acessar um lead de outro call center, o sistema não
+  permite e retorna `404`.
 
 ## 20–22. Autenticação, autorização e segurança
 
@@ -399,40 +420,38 @@ checagem operacional recomendada antes de um deploy novo.
 
 ## 27–28. Priorização, limitações e stack
 
-- [x] Priorizar o núcleo e justificar a stack sem infraestrutura desnecessária.
-- [ ] Opcional: adicionar observabilidade conforme a necessidade medida.
+- [x] Entregar primeiro as partes principais do sistema.
+- [ ] Adicionar monitoramento mais completo no futuro.
 
-Prioridades da implementação:
+O que foi feito primeiro:
 
-- Recebimento;
-- Banco de dados;
-- Dispatcher concorrente;
-- Webhooks.
+- recebimento dos leads;
+- banco de dados;
+- distribuição dos leads;
+- webhooks.
 
-Stack escolhida por familiaridade e baixo custo operacional: Flask, SQLAlchemy, PostgreSQL, Pydantic, React, TypeScript, Vite, Docker Compose e uv.
+Escolhi Flask, SQLAlchemy, PostgreSQL, Pydantic, React, TypeScript, Vite,
+Docker Compose e uv porque já conheço essas ferramentas e elas atendem ao
+projeto sem aumentar a complexidade.
 
-Evitei infraestrutura extra sem necessidade comprovada.
+Não adicionei serviços extras sem uma necessidade clara.
 
 ### Limitações conhecidas e próximas evoluções
 
-- **Rate limiting e brute force (não implementados):** priorizaria os endpoints
-  de autenticação, recebimento de leads e webhooks. Em múltiplas instâncias,
-  usaria Flask-Limiter com armazenamento compartilhado em Redis, retornando
-  `429` e `Retry-After`. No login, combinaria limites por IP e por conta; na
-  API de leads, por cliente ou credencial de integração. Os limites seriam
-  calibrados com tráfego real e testes de recuperação após o bloqueio.
-- **DLQ:** falhas definitivas ficam preservadas, mas ainda não há redrive
-  automático. Uma evolução seria oferecer reprocessamento administrativo,
-  com auditoria e limite de tentativas.
-- **Redistribuição:** se um call center ficar offline, o lead não muda
-  automaticamente de destino. Isso depende de regras de negócio explícitas
-  para evitar duplicidade ou perda de atribuição.
-- **Escalabilidade:** o dispatcher usa advisory lock transacional; a contenção
-  precisa ser medida sob volumes muito maiores antes de trocar a estratégia.
-- **Segurança de produção:** ainda exigem atenção HTTPS, cookies `Secure`,
-  gerenciamento de segredos e configuração apropriada de deploy.
-- **Observabilidade:** o LAB demonstra métricas e estados do fluxo, mas não
-  substitui métricas de produção, alertas, tracing e monitoramento operacional.
+- **Limite de tentativas:** ainda não há proteção contra muitas tentativas de
+  login ou contra excesso de requisições. No futuro, esses limites devem ser
+  aplicados ao login, aos leads e aos webhooks.
+- **Mensagens que não foram entregues:** elas ficam guardadas, mas ainda não há
+  uma tela para tentar o envio novamente. Isso pode ser adicionado depois, com
+  controle de acesso e histórico das tentativas.
+- **Call center fora do ar:** o lead não é enviado automaticamente para outro
+  call center. Essa troca precisa seguir uma regra de negócio definida.
+- **Crescimento do sistema:** antes de mudar a forma de distribuição, é preciso
+  medir o desempenho com um volume muito maior de leads.
+- **Segurança para produção:** ainda é preciso configurar HTTPS, cookies seguros
+  e gerenciamento adequado das senhas e chaves.
+- **Monitoramento:** o LAB mostra o que acontece no fluxo, mas uma versão de
+  produção também precisaria de métricas, alertas e acompanhamento contínuo.
 
 ## Como usei IA (item 3)
 
