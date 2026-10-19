@@ -107,6 +107,34 @@ const callCenterBarTone: Record<string, string> = {
   'call-center-c': 'bg-cyan-400',
 }
 
+const serviceContainerNames: Record<string, string> = {
+  Lead: 'backend',
+  'PostgreSQL / Outbox': 'db',
+  'Outbox Service': 'outbox-service',
+  RabbitMQ: 'rabbitmq',
+  Worker: 'delivery-worker',
+}
+
+function ServiceInfo({ containerName }: { containerName: string }) {
+  return (
+    <span className="group absolute right-2 top-2 z-10">
+      <button
+        type="button"
+        aria-label="Mais informações sobre o serviço"
+        className="grid size-4 place-items-center rounded-full border border-slate-500/60 text-[9px] font-semibold leading-none text-slate-400 transition hover:border-indigo-400 hover:text-indigo-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+      >
+        i
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute right-0 top-6 hidden whitespace-nowrap rounded-md border border-slate-700/80 bg-slate-950 px-2 py-1 text-[11px] font-medium text-slate-200 shadow-lg group-hover:block group-focus-within:block dark:border-white/[.12]"
+      >
+        {containerName}
+      </span>
+    </span>
+  )
+}
+
 export function LabDeliveriesPage() {
   const [selectedId, setSelectedId] = useState('outbox')
   const [deliveries, setDeliveries] = useState<Delivery[]>([])
@@ -244,7 +272,8 @@ export function LabDeliveriesPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
             {flow.slice(0, 3).map((item, index) => (
               <div key={item.label} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-1">
-                <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                <div className="relative min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                  <ServiceInfo containerName={serviceContainerNames[item.label]} />
                   <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
@@ -270,7 +299,8 @@ export function LabDeliveriesPage() {
                     ))}
                   </div>
                 </div>
-                <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                <div className="relative min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                  <ServiceInfo containerName={serviceContainerNames[item.label]} />
                   <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
@@ -295,7 +325,8 @@ export function LabDeliveriesPage() {
                     <div className="w-full rounded-full bg-emerald-400 transition-[height] duration-500" style={{ height: `${processedProgress}%` }} />
                   </div>
                 </div>
-                <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                <div className="relative min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                  <ServiceInfo containerName={serviceContainerNames[item.label]} />
                   <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">{flowIcons[item.label]}</span><p className="truncate text-[13px] font-medium">{item.label}</p></div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>
@@ -308,7 +339,8 @@ export function LabDeliveriesPage() {
               {callCenters.map((item) => (
                 <div key={item.id} className="flex min-w-0 items-center gap-1">
                   <span className="hidden shrink-0 px-1 text-slate-500 sm:inline" aria-hidden="true">→</span>
-                  <div className="min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                  <div className="relative min-w-0 flex-1 rounded-lg border border-slate-200/70 bg-slate-50/70 px-3 py-2.5 dark:border-white/[.07] dark:bg-white/[.025]">
+                    <ServiceInfo containerName={item.id === 'call-center-a' ? 'logicall' : item.id === 'call-center-b' ? 'salesbound' : 'atendemais'} />
                     <div className="flex items-center gap-2"><span className="grid size-5 shrink-0 place-items-center text-sm text-slate-400" aria-hidden="true">⌁</span><p className="truncate text-[13px] font-medium">{item.name}</p></div>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${stateTone[item.state]}`}>{stateLabel[item.state]}</span>

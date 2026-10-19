@@ -297,18 +297,18 @@ export function LabPage() {
           </label>
           <p className="mt-2 min-h-10 text-xs leading-relaxed text-slate-500">{selected.description}</p>
 
-          <button disabled={sending || catalog.associations.length === 0} className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50" type="submit">
+          <button disabled={sending || catalog.associations.length === 0} className="mt-5 min-h-11 w-full rounded-lg bg-indigo-600/90 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-950/20 transition hover:bg-indigo-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none dark:bg-indigo-600/80 dark:hover:bg-indigo-500/90 dark:disabled:bg-white/[.08] dark:disabled:text-slate-500" type="submit">
             Gerar leads fictícios
           </button>
           <button type="button" disabled={!leads.length || sending} onClick={() => void sendLeads()}
-            className="mt-3 min-h-11 w-full rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-600 hover:bg-emerald-600/10 disabled:opacity-40">
+            className="mt-3 min-h-11 w-full rounded-lg bg-emerald-600/90 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-950/20 transition hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none dark:bg-emerald-600/80 dark:hover:bg-emerald-500/90 dark:disabled:bg-white/[.08] dark:disabled:text-slate-500">
             {sending ? 'Enviando...' : `Enviar ${leads.length} lead(s) ao backend`}
           </button>
           <button type="button" disabled={sending || clearing} onClick={() => void clearLabLeads()}
-            className="mt-3 min-h-11 w-full rounded-lg border border-rose-600 px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-600/10 disabled:opacity-40">
+            className="mt-3 min-h-11 w-full rounded-lg bg-rose-600/90 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-rose-950/20 transition hover:bg-rose-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none dark:bg-rose-600/80 dark:hover:bg-rose-500/90 dark:disabled:bg-white/[.08] dark:disabled:text-slate-500">
             {clearing ? 'Limpando banco...' : 'Limpar leads do banco'}
           </button>
-          <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
             Produtos e funis reais do banco ({catalog.products.length} produtos, {catalog.funnels.length} funis, {catalog.associations.length} combinações ativas). Origem, campanha e afiliado são aleatórios.
             {catalogError && <span className="block text-rose-600">{catalogError}</span>}
           </p>
