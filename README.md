@@ -473,9 +473,8 @@ Validações finais:
 - Suíte completa executada novamente após as alterações: **56 testes aprovados em 9,092 segundos**.
 - `git diff --check` sem erros.
 
-A instalação limpa foi validada antes da última migration de índices. A migration
-adicional foi testada separadamente, mas ainda não foi repetido o teste completo
-de inicialização do Docker Compose com PostgreSQL vazio após essa alteração.
+A instalação limpa foi validada com PostgreSQL vazio, incluindo a última migration
+de índices, e o Docker Compose foi iniciado novamente nesse estado.
 
 ## 27–28. Priorização, limitações e stack
 
