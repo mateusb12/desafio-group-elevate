@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Navigate, NavLink, Outlet, Route, Routes, useNavigate } from 'react-router'
+import { ChevronRight, FlaskConical, GitBranch, LayoutDashboard, LogOut, Moon, PackageCheck, Sun, UserRound, Users, Webhook, type LucideIcon } from 'lucide-react'
 import { getCurrentUser, login, logout } from './features/auth/auth.service'
 import type { AuthenticatedUser } from './features/auth/auth.types'
 import { LoginPage } from './features/auth/LoginPage'
@@ -113,18 +114,18 @@ function Sidebar({
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(true)
   const [labOpen, setLabOpen] = useState(true)
-  const workspaceNavigation: { id: Section; label: string; to: string }[] = user.role === 'ADMIN'
+  const workspaceNavigation: { id: Section; label: string; to: string; icon: LucideIcon }[] = user.role === 'ADMIN'
     ? [
-        { id: 'dashboard', label: 'Visão geral', to: '/dashboard' },
-        { id: 'leads', label: 'Leads', to: '/leads' },
-        { id: 'dispatcher', label: 'Distribuição', to: '/dispatcher' },
+        { id: 'dashboard', label: 'Visão geral', to: '/dashboard', icon: LayoutDashboard },
+        { id: 'leads', label: 'Leads', to: '/leads', icon: Users },
+        { id: 'dispatcher', label: 'Distribuição', to: '/dispatcher', icon: GitBranch },
       ]
-    : [{ id: 'leads', label: 'Meus leads', to: '/leads' }]
-  const labNavigation: { id: Section; label: string; to: string }[] = user.role === 'ADMIN'
+    : [{ id: 'leads', label: 'Meus leads', to: '/leads', icon: UserRound }]
+  const labNavigation: { id: Section; label: string; to: string; icon: LucideIcon }[] = user.role === 'ADMIN'
     ? [
-        { id: 'lab', label: 'Leads', to: '/lab' },
-        { id: 'lab-webhooks', label: 'Webhooks', to: '/lab/webhooks' },
-        { id: 'lab-deliveries', label: 'Entregas', to: '/lab/deliveries' },
+        { id: 'lab', label: 'Leads', to: '/lab', icon: FlaskConical },
+        { id: 'lab-webhooks', label: 'Webhooks', to: '/lab/webhooks', icon: Webhook },
+        { id: 'lab-deliveries', label: 'Entregas', to: '/lab/deliveries', icon: PackageCheck },
       ]
     : []
 
@@ -142,15 +143,15 @@ function Sidebar({
           className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-widest text-slate-400 transition hover:bg-slate-100 dark:hover:bg-white/5 sm:justify-between"
         >
           <span>Workspace</span>
-          <span aria-hidden="true" className={`text-xs transition-transform ${workspaceOpen ? 'rotate-90' : ''}`}>›</span>
+          <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform ${workspaceOpen ? 'rotate-90' : ''}`} />
         </button>
         {workspaceOpen && (
           <nav id="workspace-navigation" className="flex flex-col gap-1" aria-label="Navegação principal">
             {workspaceNavigation.map((item) => {
-              const icon = item.id === 'dashboard' ? '▦' : item.id === 'leads' ? '≡' : item.id === 'dispatcher' ? '⇄' : '✦'
+              const Icon = item.icon
               return (
                 <NavLink key={item.id} to={item.to} aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
-                  <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center text-base">{icon}</span>
+                  <Icon aria-hidden="true" className="size-4.5 shrink-0" strokeWidth={1.8} />
                   <span className="hidden sm:inline">{item.label}</span>
                 </NavLink>
               )
@@ -167,13 +168,13 @@ function Sidebar({
               className="mb-2 mt-4 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-widest text-slate-400 transition hover:bg-slate-100 dark:hover:bg-white/5 sm:justify-between"
             >
               <span>LAB</span>
-              <span aria-hidden="true" className={`text-xs transition-transform ${labOpen ? 'rotate-90' : ''}`}>›</span>
+              <ChevronRight aria-hidden="true" className={`size-3.5 transition-transform ${labOpen ? 'rotate-90' : ''}`} />
             </button>
             {labOpen && (
               <nav id="lab-navigation" className="flex flex-col gap-1" aria-label="Navegação do LAB">
                 {labNavigation.map((item) => (
                   <NavLink key={item.id} to={item.to} end aria-label={item.label} title={item.label} className={({ isActive }) => `flex items-center justify-center gap-3 rounded-lg px-2 py-2.5 text-sm transition sm:justify-start sm:px-3 ${isActive ? 'bg-indigo-500/10 font-medium text-indigo-700 dark:text-indigo-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'}`}>
-                    <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center text-base">✦</span>
+                    <item.icon aria-hidden="true" className="size-4.5 shrink-0" strokeWidth={1.8} />
                     <span className="hidden sm:inline">{item.label}</span>
                   </NavLink>
                 ))}
@@ -191,11 +192,11 @@ function Sidebar({
           </div>
           <div className="flex flex-col gap-1">
             <button type="button" onClick={onToggleTheme} className="flex items-center justify-center gap-3 rounded-lg px-2 py-2 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5 sm:justify-start sm:px-3" aria-label={`Ativar modo ${darkMode ? 'claro' : 'escuro'}`} title={`Modo ${darkMode ? 'claro' : 'escuro'}`}>
-              <span aria-hidden="true" className="grid size-5 place-items-center">{darkMode ? '☼' : '☾'}</span>
+              {darkMode ? <Sun aria-hidden="true" className="size-4.5" strokeWidth={1.8} /> : <Moon aria-hidden="true" className="size-4.5" strokeWidth={1.8} />}
               <span className="hidden sm:inline">Aparência</span>
             </button>
             <button type="button" onClick={() => void onLogout()} className="flex items-center justify-center gap-3 rounded-lg px-2 py-2 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5 sm:justify-start sm:px-3" title="Sair">
-              <span aria-hidden="true" className="grid size-5 place-items-center">↪</span>
+              <LogOut aria-hidden="true" className="size-4.5" strokeWidth={1.8} />
               <span className="hidden sm:inline">Sair</span>
             </button>
           </div>
